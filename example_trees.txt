@@ -1,0 +1,73 @@
+multiline (make sure to add space between entries)
+probably just needs a 'row-height' parameter (dynamic, based on node)
+      ✕ (2025-11-21)
+      │
+  ◉   │ (2025-11-20)
+  │   │
+◉ │   │ (2025-11-19) removed(title)
+│ │   │              updated(date)
+│ │   │
+│ │ ◉ │ (2025-11-16) removed(url)
+│ │ │ │
+├─╯ ◉ │ (2025-11-16) updated(date)
+│   │ │
+◉   │ │ (2025-11-13) added(author, title)
+│   │ │              removed(url)
+│   │ │              updated(date)
+├───┴─╯
+◉       (2025-11-10) added(date, url)
+
+vertical
+      ✕ (x30)
+  ◉   │ (12)
+◉ │   │ (1) removed(title)
+│ │ ◉ │ (ae73) removed(url)
+├─╯ ◉ │ (3a04) updated(date)
+◉   │ │ (93) added(author, title) removed(url) updated(date)
+├───┴─╯
+◉       (104) added(date, url)
+
+vertical + compact
+   ✕ (2025-11-21) replaced_by(local:xyz)
+ ◊ │ (2025-11-20)
+◊│ │ (2025-11-19) removed(title)
+││◊│ (2025-11-16) removed(url)
+├╯◊│ (2025-11-16) updated(date)
+◊ ││ (2025-11-13) added(author, title) removed(url) updated(date)
+├─┴╯
+◊    (2025-11-10) created(date, url)
+
+
+flatten
+◉       (ff)
+│ ✕     (b30)
+◉ ╰─╮   (12)
+╰─╮ │
+◉ │ ╰─╮ (1)
+│ │ ◉ │ (ae73)
+├─╯ ◉ │ (3a04)
+◉   │ │ (93)
+├───┴─╯
+◉       (104)
+
+flatten + compact
+◊    (ff)
+│✕   (b30)
+◊╰╮  (12)
+╰╮│
+◊│╰╮ (1)
+││◊│ (ae73)
+├╯◊│ (3a04)
+◊ ││ (93)
+├─┴╯
+◊    (104)
+
+ascii charset
+      x (ff)
+  *   | (b30)
+* |   | (12) removed(title)
+| | * | (1) removed(url)
+|-/ * | (3) updated(date)
+*   | | (93) added(author, title) removed(url) updated(date)
+|---+-/
+*       (12) created(date, url)
