@@ -1,0 +1,125 @@
+tree  column_spec                        diff_spec
+----  -----------                        ---------
+0     [(*0,0)]                          marker
+├╮    [(*1,0), (2, 0), (6, 0)]          fork
+1├╮   [(*1,0), (2, 1), (6, 1)]          marker fork
+│2│   [(4, 0), (5, 0), (*2,1), (6, 2)]  vert marker vert
+│3│   [(4, 0), (5, 0), (*3,1), (6, 2)]  vert marker vert
+├╮│   [(*4,0), (5, 0), (6, 2)]          fork vert
+4││   [(*4,0), (5, 1), (6, 2)]          marker vert vert
+╭╯│   [(*5,1), (6, 2)]                  shift vert
+5╭╯   [(*5,0), (6, 2)]                  marker shift
+│6    [(7, 0), (*6,1)]                  vert marker
+7     [(*7,0)]                          marker
+
+
+# Invariants
+
+1. The column indicators are sorted in increasing order.
+2. Exactly one of the following must be true:
+   a. There is one `marker`, and no `fork`.
+   b. There is one `fork`, and no `marker`.
+   c. There is one `marker` and one `fork`.
+3. A fork immediately precedes drawing a marker.
+
+
+# Checking for forks and shifts
+
+Forks and shifts are checked in a single pass as follows.
+
+A `fork` occurs when the minimal element is not in a unique column.
+The `fork` operation modifies the indices in a minimal so that this is no longer the case.
+
+A `shift` occurs when there is an unoccupied column, and this column was not previously filled by a prior increment resulting from a fork. We then decrement the immediate following element, but none of the subsequent elements since a `shift` requires two columns of characters.
+
+Forks are processed with higher priority than shifts.
+
+1. If there is an element preceding the minimal column, we either decrement this element (if the prior index is not occupied) or we increment the minimal element column.
+2. If there is an element following the minimal column, we increment the next column index, and then every subsequent element for which the previous increment would cause a new overlap.
+
+
+tree  column_spec                        diff_spec
+----  -----------                        ---------
+0     [(*0, 0)]                          marker
+├┬╮   [(2, 0), (*1, 0), (6, 0)]          fork
+│1│   [(2, 0), (*1, 1), (6, 2)]          vert marker vert
+2││   [(*2, 0), (3, 1), (6, 2)]          marker vert vert
+│3│   [(4, 0), (5, 0), (*3, 1), (6, 2)]  vert marker vert
+├╮│   [(*4, 0), (5, 0), (6, 2)]          fork vert
+4││   [(*4, 0), (5, 1), (6, 2)]          marker vert vert
+╭╯│   [(*5, 1), (6, 2)]                  shift vert
+5╭╯   [(*5, 0), (6, 2)]                  marker shift
+│6    [(7, 0), (*6, 1)]                  vert marker
+7     [(*7, 0)]                          marker
+      None
+
+Place the marker as early as possible
+
+0
+├╮
+1├╮
+ 2├╮
+  3├╮
+   4├╮
+    5├╮
+     6│
+      7
+
+Whereas the 'avoid holes' strategy makes this really tall.
+
+0
+├╮
+1│
+╭┤
+2│
+╭┤
+3│
+╭┤
+4│
+╭┤
+5│
+╭┤
+6│
+╭╯
+7
+
+Rule 1: vertex in strict order
+Rule 2: cannot edit things that we already wrote
+Rule 3: we cannot know anything about the future
+Rule 4: We only get to know the children after we draw the vertex
+
+Rule A: No holes?
+Rule B: As short as possible?
+Rule C: As skinny as possible?
+
+Tree: each vtx has a weight w in R
+Property: each child of vtx has weight w' >= w
+
+
+Randomly sample # of children
+For each child, randomly sample weight (exp, etc.)
+
+0
+├┬╮
+│1├╮
+││2╰──╮
+│╰─╮  3
+├┬╮╰─╮│
+│4╰─╮││
+│╰─╮│││
+├┬╮││││
+│5│││││
+│ 6││││
+7╭─╯│││
+ 8╭─╯││
+  9╭─╯│
+   a╭─╯
+╭┬┬─╯   
+││b
+c│
+ d
+
+
+
+
+
