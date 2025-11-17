@@ -1,21 +1,45 @@
+use std::fmt::Write as _;
+
 use super::*;
 
-pub struct Vertex<T> {
-    pub data: T,
-    pub children: Vec<Vertex<T>>,
+#[derive(Clone)]
+struct Vertex<T> {
+    data: T,
+    children: Vec<Vertex<T>>,
 }
 
 impl<T> Vertex<T> {
-    pub fn inner(data: T, children: Vec<Vertex<T>>) -> Self {
+    fn inner(data: T, children: Vec<Vertex<T>>) -> Self {
         Self { data, children }
     }
 
-    pub fn leaf(data: T) -> Self {
+    fn leaf(data: T) -> Self {
         Self {
             data,
             children: Vec::new(),
         }
     }
+}
+
+fn assert_diag_impl<R: for<'a> Ramify<&'a Vertex<char>>>(
+    root: Vertex<char>,
+    expected: &str,
+    ramifier: R,
+    padding: usize,
+) {
+    println!("\nExpecting tree:\n{expected}");
+
+    let mut output: Vec<u8> = Vec::new();
+    let mut writer = DiagramWriter::with_default_config(&mut output);
+    writer.config.annotation_margin_below = padding;
+    let mut cols = BranchDiagram::new(&root, ramifier, writer);
+    while cols.write_next_marker().unwrap() {}
+
+    let received = std::str::from_utf8(&output).unwrap();
+
+    println!("Got tree:\n{received}");
+
+    assert_eq!(expected, received);
 }
 
 struct CharTreeRamifier;
@@ -35,27 +59,13 @@ impl<'t> Ramify<&'t Vertex<char>> for CharTreeRamifier {
         vtx.data
     }
 
-    fn annotation(&self, _: &'t Vertex<char>, _: usize) -> Option<impl std::fmt::Display> {
-        Some('#')
+    fn annotation(&self, _: &'t Vertex<char>, _: usize, buf: &mut String) {
+        let _ = buf.write_char('#');
     }
 }
 
 fn assert_diag(root: Vertex<char>, expected: &str) {
-    println!("\nExpecting tree:\n{expected}");
-
-    let mut output: Vec<u8> = Vec::new();
-    let mut cols = BranchDiagram::new(
-        &root,
-        CharTreeRamifier,
-        DiagramWriter::with_default_config(&mut output),
-    );
-    while cols.write_next_marker().unwrap() {}
-
-    let received = std::str::from_utf8(&output).unwrap();
-
-    println!("Got tree:\n{received}");
-
-    assert_eq!(expected, received);
+    assert_diag_impl(root, expected, CharTreeRamifier, 0)
 }
 
 #[test]
@@ -370,4 +380,296 @@ fn annotation_whitespace_management() {
  8 #
 ",
     );
+}
+
+struct MultiAnnotationTreeRamifier;
+
+impl<'t> Ramify<&'t Vertex<char>> for MultiAnnotationTreeRamifier {
+    type Key = char;
+
+    fn children(&self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+        vtx.children.iter()
+    }
+
+    fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+        vtx.data
+    }
+
+    fn marker(&self, vtx: &'t Vertex<char>) -> char {
+        vtx.data
+    }
+
+    fn annotation(&self, _: &'t Vertex<char>, _: usize, buf: &mut String) {
+        let _ = buf.write_str(">0\n>1\n>2");
+    }
+}
+
+fn assert_diag_multi(root: Vertex<char>, padding: usize, expected: &str) {
+    assert_diag_impl(root, expected, MultiAnnotationTreeRamifier, padding)
+}
+
+#[test]
+fn multiline_annotations() {
+    let root = {
+        let v8 = Vertex::leaf('8');
+        let v7 = Vertex::leaf('7');
+        let v6 = Vertex::leaf('6');
+        let v5 = Vertex::leaf('5');
+        let v4 = Vertex::leaf('4');
+        let v3 = Vertex::leaf('3');
+        let v2 = Vertex::inner('2', vec![v6]);
+        let v1 = Vertex::inner('1', vec![v3]);
+        Vertex::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    };
+    assert_diag_multi(
+        root,
+        0,
+        "\
+0   >0
+╰╮  >1
+╭┼╮ >2
+│1├╮ >0
+││││ >1
+││││ >2
+││2│ >0
+││││ >1
+││││ >2
+│3││  >0
+│╭╯│  >1
+││╭┼╮ >2
+│││4│ >0
+│││╭╯ >1
+││││  >2
+││5│ >0
+││╭╯ >1
+│││  >2
+│6│ >0
+│╭╯ >1
+││  >2
+7│ >0
+╭╯ >1
+│  >2
+8 >0
+  >1
+  >2
+",
+    );
+}
+
+#[test]
+fn inner_path_multiline_padded() {
+    let root = {
+        let v8 = Vertex::leaf('8');
+        let v7 = Vertex::leaf('7');
+        let v6 = Vertex::leaf('6');
+        let v5 = Vertex::leaf('5');
+        let v4 = Vertex::leaf('4');
+        let v3 = Vertex::inner('3', vec![v8]);
+        let v2 = Vertex::leaf('2');
+        let v1 = Vertex::inner('1', vec![v7]);
+        Vertex::inner('0', vec![v5, v4, v6, v1, v2, v3])
+    };
+    assert_diag_multi(
+        root.clone(),
+        0,
+        "\
+0   >0
+╰╮  >1
+╭┼╮ >2
+│1├╮ >0
+││││ >1
+││││ >2
+││2│ >0
+││╭╯ >1
+│││  >2
+││3   >0
+││╰─╮ >1
+│╰─╮│ >2
+├┬╮││
+│4│││ >0
+│╭╯││ >1
+││╭╯│ >2
+5││╭╯ >0
+╭╯││  >1
+│╭╯│  >2
+6│╭╯ >0
+╭╯│  >1
+│╭╯  >2
+7│ >0
+╭╯ >1
+│  >2
+8 >0
+  >1
+  >2
+",
+    );
+    assert_diag_multi(
+        root,
+        1,
+        "\
+0   >0
+╰╮  >1
+╭┼╮ >2
+│││
+│1├╮ >0
+││││ >1
+││││ >2
+││││
+││2│ >0
+││╭╯ >1
+│││  >2
+│││
+││3   >0
+││╰─╮ >1
+│╰─╮│ >2
+├┬╮││
+│4│││ >0
+│╭╯││ >1
+││╭╯│ >2
+│││╭╯
+5│││ >0
+╭╯││ >1
+│╭╯│ >2
+││╭╯
+6││ >0
+╭╯│ >1
+│╭╯ >2
+││
+7│ >0
+╭╯ >1
+│  >2
+│
+8 >0
+  >1
+  >2
+",
+    );
+}
+
+#[test]
+fn small_multi() {
+    let expected_diags = [
+        "\
+0  >0
+│  >1
+├╮ >2
+││
+1│ >0
+╭╯ >1
+├╮ >2
+││
+2│ >0
+╭╯ >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+        "\
+0  >0
+│  >1
+├╮ >2
+││
+1│ >0
+ │ >1
+╭┤ >2
+││
+│2 >0
+│  >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+        "\
+0   >0
+╰╮  >1
+╭┼╮ >2
+│││
+│1│ >0
+│╭╯ >1
+││  >2
+││
+2│ >0
+╭╯ >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+        "\
+0  >0
+╰╮ >1
+╭┤ >2
+││
+│1 >0
+│  >1
+├╮ >2
+││
+2│ >0
+╭╯ >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+        "\
+0   >0
+╰╮  >1
+╭┼╮ >2
+│││
+│1│ >0
+│╭╯ >1
+││  >2
+││
+│2 >0
+│  >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+        "\
+0  >0
+╰╮ >1
+╭┤ >2
+││
+│1 >0
+╰╮ >1
+╭┤ >2
+││
+│2 >0
+│  >1
+│  >2
+│
+3 >0
+  >1
+  >2
+",
+    ];
+
+    for ((c1, c2, c3), diag) in [
+        ('1', '2', '3'),
+        ('1', '3', '2'),
+        ('2', '1', '3'),
+        ('2', '3', '1'),
+        ('3', '1', '2'),
+        ('3', '2', '1'),
+    ]
+    .into_iter()
+    .zip(expected_diags)
+    {
+        let root = {
+            let v1 = Vertex::leaf(c1);
+            let v2 = Vertex::leaf(c2);
+            let v3 = Vertex::leaf(c3);
+            Vertex::inner('0', vec![v1, v2, v3])
+        };
+        assert_diag_multi(root, 1, diag);
+    }
 }

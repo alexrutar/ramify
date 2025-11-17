@@ -91,11 +91,11 @@ pub fn marker<W: io::Write>(
     marker_col: usize,
 ) -> io::Result<usize> {
     if marker_col >= offset {
-        writer.branch(Branch::Blank(marker_col - offset))?;
-        writer.mark(marker)?;
+        writer.write_branch(Branch::Blank(marker_col - offset))?;
+        writer.write_vertex_marker(marker)?;
         Ok(marker_col + 1)
     } else {
-        writer.mark(marker)?;
+        writer.write_vertex_marker(marker)?;
         // propagate the offset
         Ok((marker_col + 1).max(offset + 1))
     }
@@ -115,8 +115,8 @@ pub fn mark_and_prepare<V, W: io::Write>(
 
     let col = cols[min_index].1;
 
-    writer.branch(Branch::Blank(col.saturating_sub(offset)))?;
-    writer.mark(marker)?;
+    writer.write_branch(Branch::Blank(col.saturating_sub(offset)))?;
+    writer.write_vertex_marker(marker)?;
 
     // the number of columns we require to perform the fork later
     let required_fork_space = if l + 1 == r {
@@ -169,7 +169,7 @@ pub fn align<V, W: io::Write>(
         if cur_col >= start {
             let diff = cur_col - start;
 
-            writer.branch(Branch::shift_left(diff))?;
+            writer.write_branch(Branch::shift_left(diff))?;
 
             start = cur_col + 1;
             if diff >= 1 {
@@ -216,7 +216,7 @@ pub fn align<V, W: io::Write>(
             // the new column value
             let new_col = cur_col + allowed_shift;
 
-            writer.branch(Branch::shift_right(allowed_shift))?;
+            writer.write_branch(Branch::shift_right(allowed_shift))?;
             for (_, c) in cols[prev_idx..idx].iter_mut() {
                 *c = new_col;
             }
@@ -272,7 +272,7 @@ pub fn align<V, W: io::Write>(
 /// ```
 /// this is no longer the case: we cannot fork immediately before vertex `2` because vertex `1` is
 /// still occupying the position, so we need to wait one extra row to fork.
-pub fn fork_align<V, W: io::Write>(
+pub fn fork_align<V, W: io::Write, const FORK: bool>(
     writer: &mut DiagramWriter<W>,
     cols: &mut [(V, usize)],
     min_index: usize,
@@ -297,8 +297,8 @@ pub fn fork_align<V, W: io::Write>(
     };
 
     offset = match fork_limit {
-        Some(end) => fork_exact(writer, &mut cols[l..r], min_index - l, offset..end)?,
-        None => fork_exact(writer, &mut cols[l..r], min_index - l, offset..)?,
+        Some(end) => fork_exact::<_, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..end)?,
+        None => fork_exact::<_, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..)?,
     };
 
     match bounds.end() {
@@ -308,20 +308,19 @@ pub fn fork_align<V, W: io::Write>(
 }
 
 /// Perform a fork, where the fork corresponds exactly to the provided columns.
-pub fn fork_exact<V, W: io::Write>(
+pub fn fork_exact<V, W: io::Write, const FORK: bool>(
     writer: &mut DiagramWriter<W>,
     cols: &mut [(V, usize)],
     min_index: usize,
     bounds: impl HalfOpen,
 ) -> io::Result<usize> {
     debug_assert!(min_index < cols.len());
-    let mut start = bounds.start();
-    let l = 0;
+    let mut offset = bounds.start();
 
     if min_index == 0 || min_index + 1 == cols.len() {
         // boundary fork
         let cur_col = cols[min_index].1;
-        let space_on_left = cur_col - start;
+        let space_on_left = cur_col - offset;
 
         if space_on_left == 0 {
             let can_fork_right = match bounds.end() {
@@ -330,94 +329,141 @@ pub fn fork_exact<V, W: io::Write>(
             };
 
             if can_fork_right {
-                writer.branch(Branch::ForkRight(0))?;
-                if min_index == l {
-                    // the new minimal element follows the left fork, so all of the other
-                    // elements follow the right fork
-                    for (_, c) in cols[l + 1..].iter_mut() {
-                        *c += 1;
+                if FORK {
+                    writer.write_branch(Branch::ForkRight(0))?;
+                    if min_index == 0 {
+                        // the new minimal element follows the left fork, so all of the other
+                        // elements follow the right fork
+                        for (_, c) in cols[1..].iter_mut() {
+                            *c += 1;
+                        }
+                    } else {
+                        // the new minimal element follows the right fork
+                        cols[min_index].1 = cur_col + 1;
                     }
                 } else {
-                    // the new minimal element follows the right fork
-                    cols[min_index].1 = cur_col + 1;
+                    if min_index == 0 {
+                        writer.write_branch(Branch::Continue)?;
+                        writer.write_branch(Branch::Blank(1))?;
+                    } else {
+                        writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                        for (_, c) in cols {
+                            *c += 1;
+                        }
+                    }
                 }
             } else {
-                writer.branch(Branch::Continue)?;
+                writer.write_branch(Branch::Continue)?;
             }
 
             // either we fork right or we fail; either way, we request an extra space
-            start = cur_col + 2;
+            offset = cur_col + 2;
         } else {
-            if space_on_left == 1 {
-                writer.branch(Branch::ForkLeft(0))?;
-            } else {
-                writer.branch(Branch::ShiftForkLeft(space_on_left - 2, 1))?;
-            }
+            if FORK {
+                if space_on_left == 1 {
+                    writer.write_branch(Branch::ForkLeft(0))?;
+                } else {
+                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 1))?;
+                }
 
-            if min_index == l {
-                cols[l].1 = cur_col - space_on_left;
-                for (_, c) in cols[l + 1..].iter_mut() {
-                    *c = *c + 1 - space_on_left;
+                if min_index == 0 {
+                    cols[0].1 = cur_col - space_on_left;
+                    for (_, c) in cols[1..].iter_mut() {
+                        *c = *c + 1 - space_on_left;
+                    }
+                } else {
+                    for (_, c) in cols[0..min_index].iter_mut() {
+                        *c -= space_on_left;
+                    }
+                    cols[min_index].1 = cols[min_index].1 + 1 - space_on_left;
                 }
             } else {
-                for (_, c) in cols[l..min_index].iter_mut() {
-                    *c -= space_on_left;
+                // align with the branch that will write the next vertex
+                if min_index == 0 {
+                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 1, 0))?;
+                    for (_, c) in cols {
+                        *c -= space_on_left;
+                    }
+                } else if space_on_left == 1 {
+                    writer.write_branch(Branch::Blank(1))?;
+                    writer.write_branch(Branch::Continue)?;
+                } else {
+                    writer.write_branch(Branch::Blank(1))?;
+                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
+                    for (_, c) in cols {
+                        *c -= space_on_left - 1;
+                    }
                 }
-                cols[min_index].1 = cols[min_index].1 + 1 - space_on_left;
             }
 
             // we forked left successfully, so we don't need to request an extra space
-            start = cur_col + 1;
+            offset = cur_col + 1;
         }
     } else {
         // interior fork, which has size 3
         const EXTRA: usize = 2;
 
         let cur_col = cols[min_index].1;
-        let space_on_left = cur_col - start;
+        let space_on_left = cur_col - offset;
         let space_on_right = match bounds.end() {
             Some(bd) => bd.saturating_sub(cur_col + 1),
             None => EXTRA,
         };
 
         if space_on_left + space_on_right >= EXTRA {
-            // write the fork or shift and update the previous column
-            if space_on_left > EXTRA {
-                writer.branch(Branch::ShiftForkLeft(space_on_left - EXTRA - 1, EXTRA))?;
-                start = cur_col + 1;
-            } else {
-                writer.branch(Branch::fork(space_on_left, EXTRA - space_on_left))?;
-                start = cur_col + EXTRA - space_on_left + 1;
-            };
+            if FORK {
+                // write the fork or shift and update the previous column
+                if space_on_left > EXTRA {
+                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - EXTRA - 1, EXTRA))?;
+                    offset = cur_col + 1;
+                } else {
+                    writer.write_branch(Branch::fork(space_on_left, EXTRA - space_on_left))?;
+                    offset = cur_col + EXTRA - space_on_left + 1;
+                };
 
-            // update the column values
-            for (_, c) in cols[l..min_index].iter_mut() {
-                *c -= space_on_left;
-            }
-            cols[min_index].1 = cur_col - space_on_left + 1;
-            for (_, c) in cols[min_index + 1..].iter_mut() {
-                *c = *c - space_on_left + 2;
+                // update the column values
+                for (_, c) in cols[..min_index].iter_mut() {
+                    *c -= space_on_left;
+                }
+                cols[min_index].1 = cur_col - space_on_left + 1;
+                for (_, c) in cols[min_index + 1..].iter_mut() {
+                    *c = *c - space_on_left + 2;
+                }
+            } else {
+                if space_on_left == 0 {
+                    writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                    writer.write_branch(Branch::Blank(1))?;
+
+                    for (_, c) in cols {
+                        *c += 1;
+                    }
+                    offset = cur_col + 3;
+                } else if space_on_left == 1 {
+                    writer.write_branch(Branch::Blank(1))?;
+                    writer.write_branch(Branch::Continue)?;
+                    writer.write_branch(Branch::Blank(1))?;
+
+                    offset = cur_col + 2;
+                } else {
+                    writer.write_branch(Branch::Blank(1))?;
+                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
+
+                    for (_, c) in cols {
+                        *c -= space_on_left - 1;
+                    }
+                    offset = cur_col + 1;
+                }
             }
         } else {
             if space_on_left > 0 {
-                writer.branch(Branch::Blank(1))?;
+                writer.write_branch(Branch::Blank(1))?;
             }
-            writer.branch(Branch::Continue)?;
+            writer.write_branch(Branch::Continue)?;
             if space_on_right > 0 {
-                writer.branch(Branch::Blank(1))?;
+                writer.write_branch(Branch::Blank(1))?;
             }
-            start = cur_col + 1 + EXTRA - space_on_left;
+            offset = cur_col + 1 + EXTRA - space_on_left;
         }
     };
-    Ok(start)
+    Ok(offset)
 }
-
-// /// Prepare space to fork without immediately performing a fork
-// pub fn prepare_fork<V, W: io::Write>(
-//     mut writer: W,
-//     cols: &mut [(V, usize)],
-//     min_index: usize,
-//     bounds: impl HalfOpen,
-// ) -> io::Result<usize> {
-//     todo!()
-// }

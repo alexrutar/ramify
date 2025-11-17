@@ -3,45 +3,109 @@ use std::{fmt, io};
 use crate::config::Config;
 
 pub struct DiagramWriter<W> {
+    /// Writer configuration.
     pub config: Config,
     writer: W,
     line_width: usize,
 }
 
 impl<W: io::Write> DiagramWriter<W> {
+    /// Create a new [`DiagramWriter`] wrapping a writer, using the default configuration.
     pub fn with_default_config(writer: W) -> Self {
         Self {
-            config: Config::default(),
+            config: Config::new(),
             writer,
             line_width: 0,
         }
     }
 
-    /// Returns the number of characters written since the last newline.
+    /// Returns the number of characters written since the last line break.
     pub fn line_char_count(&self) -> usize {
         self.line_width
     }
 
+    /// Write a [`Branch`].
     #[inline]
-    pub fn branch(&mut self, b: Branch) -> io::Result<()> {
-        self.line_width += b.width();
-        write!(&mut self.writer, "{b}")
+    pub fn write_branch(&mut self, b: Branch) -> io::Result<()> {
+        let f = &mut self.writer;
+        let width = match b {
+            Branch::Continue => {
+                write!(f, "│")?;
+                1
+            }
+            Branch::Blank(spaces) => {
+                write!(f, "{:>branch$}", "", branch = spaces)?;
+                spaces
+            }
+            Branch::ShiftForkLeft(shift, branch) => {
+                write!(
+                    f,
+                    "╭{:┬>branch$}{:─>shift$}╯",
+                    "",
+                    "",
+                    branch = branch,
+                    shift = shift
+                )?;
+                2 + shift + branch
+            }
+            Branch::ShiftForkRight(shift, branch) => {
+                write!(
+                    f,
+                    "╰{:─>shift$}{:┬>branch$}╮",
+                    "",
+                    "",
+                    branch = branch,
+                    shift = shift
+                )?;
+                2 + shift + branch
+            }
+            Branch::ForkLeft(branch) => {
+                write!(f, "╭{:┬>branch$}┤", "", branch = branch)?;
+                2 + branch
+            }
+            Branch::ForkRight(branch) => {
+                write!(f, "├{:┬>branch$}╮", "", branch = branch)?;
+                2 + branch
+            }
+            Branch::ForkMiddle(left, right) => {
+                write!(
+                    f,
+                    "╭{:┬>left$}┼{:┬>right$}╮",
+                    "",
+                    "",
+                    left = left,
+                    right = right
+                )?;
+                3 + left + right
+            }
+        };
+        self.line_width += width;
+        Ok(())
     }
 
+    /// Write a vertex marker.
     #[inline]
-    pub fn mark(&mut self, marker: char) -> io::Result<()> {
+    pub fn write_vertex_marker(&mut self, marker: char) -> io::Result<()> {
         self.line_width += 1;
         write!(&mut self.writer, "{marker}")
     }
 
+    /// Write a newline.
     #[inline]
-    pub fn newline(&mut self) -> io::Result<()> {
+    pub fn write_newline(&mut self) -> io::Result<()> {
         self.line_width = 0;
         writeln!(&mut self.writer)
     }
 
+    /// Write a single line of annotation, followed by a newline.
+    ///
+    /// The caller must guarantee the provided line does not contain any newlines.
     #[inline]
-    pub fn annotation_line(&mut self, line: impl fmt::Display, bound: usize) -> io::Result<()> {
+    pub fn write_annotation_line(
+        &mut self,
+        line: impl fmt::Display,
+        bound: usize,
+    ) -> io::Result<()> {
         writeln!(
             &mut self.writer,
             "{:>align$}{:>padding$}{line}",
@@ -55,6 +119,8 @@ impl<W: io::Write> DiagramWriter<W> {
     }
 }
 
+/// The components from which a branch diagram is created.
+#[derive(Debug, Clone, Copy)]
 pub enum Branch {
     /// A `│` continuation.
     Continue,
@@ -103,68 +169,11 @@ pub enum Branch {
     ShiftForkRight(usize, usize),
 }
 
-impl fmt::Display for Branch {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Branch::Continue => {
-                write!(f, "│")
-            }
-            Branch::Blank(spaces) => {
-                write!(f, "{:>branch$}", "", branch = spaces)
-            }
-            Branch::ShiftForkLeft(shift, branch) => {
-                write!(
-                    f,
-                    "╭{:┬>branch$}{:─>shift$}╯",
-                    "",
-                    "",
-                    branch = branch,
-                    shift = shift
-                )
-            }
-            Branch::ShiftForkRight(shift, branch) => {
-                write!(
-                    f,
-                    "╰{:─>shift$}{:┬>branch$}╮",
-                    "",
-                    "",
-                    branch = branch,
-                    shift = shift
-                )
-            }
-            Branch::ForkLeft(branch) => {
-                write!(f, "╭{:┬>branch$}┤", "", branch = branch)
-            }
-            Branch::ForkRight(branch) => {
-                write!(f, "├{:┬>branch$}╮", "", branch = branch)
-            }
-            Branch::ForkMiddle(left, right) => {
-                write!(
-                    f,
-                    "╭{:┬>left$}┼{:┬>right$}╮",
-                    "",
-                    "",
-                    left = left,
-                    right = right
-                )
-            }
-        }
-    }
-}
-
 impl Branch {
-    pub fn width(&self) -> usize {
-        match self {
-            Self::Continue => 1,
-            Self::Blank(n) => *n,
-            Self::ForkLeft(n) => 2 + *n,
-            Self::ForkRight(n) => 2 + *n,
-            Self::ForkMiddle(l, r) => 3 + *l + *r,
-            Self::ShiftForkLeft(s, f) => 2 + *s + *f,
-            Self::ShiftForkRight(s, f) => 2 + *s + *f,
-        }
-    }
-
+    /// Shorthand for moving `n` columns to the left.
+    ///
+    /// If `n = 0`, this is a [`Branch::Continue`], and otherwise a
+    /// [`Branch::ShiftForkLeft`] with arguments `n` and `0`.
     pub const fn shift_left(n: usize) -> Self {
         match n.checked_sub(1) {
             None => Branch::Continue,
@@ -172,6 +181,10 @@ impl Branch {
         }
     }
 
+    /// Shorthand for moving `n` columns to the right.
+    ///
+    /// If `n = 0`, this is a [`Branch::Continue`], and otherwise a
+    /// [`Branch::ShiftForkRight`] with arguments `n` and `0`.
     pub const fn shift_right(n: usize) -> Self {
         match n.checked_sub(1) {
             None => Branch::Continue,
@@ -179,6 +192,12 @@ impl Branch {
         }
     }
 
+    /// Shorthand for forking with `l` columns to the left and `r` columns to the right.
+    ///
+    /// - If `l = r = 0`, this is a [`Branch::Continue`].
+    /// - If `l > 0` and `r = 0` this is a [`Branch::ForkLeft`].
+    /// - If `l = 0` and `r > 0` this is a [`Branch::ForkRight`].
+    /// - If `l > 0` and `r > 0` this is a [`Branch::ForkMiddle`].
     pub const fn fork(l: usize, r: usize) -> Self {
         match (l.checked_sub(1), r.checked_sub(1)) {
             (None, None) => Branch::Continue,

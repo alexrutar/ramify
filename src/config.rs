@@ -7,13 +7,22 @@ pub struct Config {
     pub charset: Charset,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    /// Initialize configuration using default values.
+    ///
+    /// This is the same as the [`Default`] implementation, but as a `const fn`.
+    pub const fn new() -> Self {
         Self {
             annotation_margin_below: 0,
             annotation_margin_left: 1,
-            charset: Default::default(),
+            charset: Charset::new(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -66,11 +75,15 @@ pub struct Charset {
 
 impl Default for Charset {
     fn default() -> Self {
-        Self::smooth_corners()
+        Self::new()
     }
 }
 
 impl Charset {
+    const fn new() -> Self {
+        Self::smooth_corners()
+    }
+
     /// The default charset, which has smooth corners.
     /// ```txt
     /// ╯ ┴ ╰ ─

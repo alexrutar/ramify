@@ -27,8 +27,6 @@ pub mod config;
 mod layout;
 mod writer;
 
-use std::fmt::Display;
-
 pub use self::{layout::BranchDiagram, writer::DiagramWriter};
 
 /// Heirarchical types with efficient iteration of children.
@@ -104,7 +102,5 @@ pub trait Ramify<V> {
     /// unnecessary whitespace from being written. The default implementation always
     /// returns `None`.
     #[allow(unused)]
-    fn annotation(&self, vtx: V, tree_width: usize) -> Option<impl Display> {
-        None::<std::convert::Infallible>
-    }
+    fn annotation(&self, vtx: V, tree_width: usize, buf: &mut String) {}
 }

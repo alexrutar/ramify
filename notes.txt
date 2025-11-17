@@ -1,3 +1,21 @@
+struct Vx(char, Vec<Vx>);
+
+fn x(c: char) -> Vx {
+    Vx(c, vec![])
+}
+
+fn tes() {
+    Vx(
+        '0',
+        vec![
+            x('7'),
+            Vx('2', vec![x('4'), x('5'), x('6')]),
+            x('1'),
+            x('3'),
+        ],
+    );
+}
+
 tree  column_spec                        diff_spec
 ----  -----------                        ---------
 0     [(*0,0)]                          marker

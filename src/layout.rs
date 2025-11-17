@@ -6,12 +6,12 @@ use std::{io, iter::repeat, ops::Range};
 
 use crate::{Ramify, writer::DiagramWriter};
 
-/// A [`BranchDiagram`] represents the '
+/// A branch diagram.
 pub struct BranchDiagram<V, R, W> {
     columns: Vec<(V, usize)>,
     ramifier: R,
     writer: DiagramWriter<W>,
-    scratch: String,
+    annotation_buf: String,
 }
 
 impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
@@ -21,7 +21,7 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
             // min_index: Some(0),
             ramifier,
             writer,
-            scratch: String::new(),
+            annotation_buf: String::new(),
         }
     }
 
@@ -85,14 +85,6 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
         (vtx, col, idx..idx + child_count)
     }
 
-    // FIXME: multiline
-    fn write_annotation(&mut self, vtx: V, edge_index_limit: usize) -> io::Result<()> {
-        match self.ramifier.annotation(vtx, edge_index_limit) {
-            Some(line) => self.writer.annotation_line(line, edge_index_limit),
-            None => self.writer.newline(),
-        }
-    }
-
     fn is_singleton(&self, idx: usize) -> bool {
         let Range { start: l, end: r } = ops::column_range(&self.columns, idx);
         l + 1 == r
@@ -113,7 +105,14 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
         let Some(next_min_idx) = self.min_index() else {
             let diagram_width = ops::marker(&mut self.writer, marker_char, 0, col)?;
 
-            self.write_annotation(vtx, diagram_width)?;
+            self.annotation_buf.clear();
+            self.ramifier
+                .annotation(vtx, diagram_width, &mut self.annotation_buf);
+
+            for line in self.annotation_buf.lines() {
+                self.writer.write_annotation_line(line, diagram_width)?;
+            }
+
             return Ok(false);
         };
 
@@ -127,9 +126,12 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
         //
         // Handling these cases causes more difficulty with annotations since we need
         // to predict how much of the slack space we will actually use
-        let edge_index_limit = ops::required_width(&self.columns, next_min_idx);
+        let diagram_width = ops::required_width(&self.columns, next_min_idx);
 
-        let mut offset;
+        self.annotation_buf.clear();
+        self.ramifier
+            .annotation(vtx, diagram_width, &mut self.annotation_buf);
+        let mut lines = self.annotation_buf.lines();
 
         if next_min_idx < l {
             // the next minimal index lands before the marker
@@ -140,7 +142,7 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
 
             // we use `..col` since want to prepare space to fork, but we cannot exceed the marker
             // position
-            offset = ops::fork_align(
+            let mut offset = ops::fork_align::<_, _, true>(
                 &mut self.writer,
                 &mut self.columns[..l],
                 next_min_idx,
@@ -151,15 +153,15 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
             ops::align(
                 &mut self.writer,
                 &mut self.columns[r..],
-                offset..edge_index_limit,
-            )?
+                offset..diagram_width,
+            )?;
         } else if next_min_idx < r {
             // the next minimal index is a child of the marker
 
             // first, we use `align` on the preceding columns to make as much space as
             // possible. we can use the unbounded version since `align` by default compats and this
             // may result in better codegen
-            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
+            let mut offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
             offset = ops::mark_and_prepare(
                 &mut self.writer,
                 &self.columns,
@@ -170,36 +172,85 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
             ops::align(
                 &mut self.writer,
                 &mut self.columns[r..],
-                offset..edge_index_limit,
-            )?
+                offset..diagram_width,
+            )?;
         } else {
             // the next minimal index follows the marker
 
-            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
+            let mut offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
             offset = ops::marker(&mut self.writer, marker_char, offset, col)?;
-            ops::fork_align(
+            ops::fork_align::<_, _, true>(
                 &mut self.writer,
                 &mut self.columns[r..],
                 next_min_idx - r,
-                offset..edge_index_limit,
-            )?
+                offset..diagram_width,
+            )?;
         };
 
-        self.write_annotation(vtx, edge_index_limit)?;
+        let annotation_alignment = diagram_width.max(self.writer.line_char_count());
+
+        // write the first annotation line
+        if let Some(line) = lines.next() {
+            self.writer
+                .write_annotation_line(line, annotation_alignment)?;
+        }
 
         #[cfg(test)]
         self.debug_cols_header(format!("Wrote marker line with marker {marker_char}"));
 
-        // finally, prepare for the next row by repeatedly calling
-        // `fork_align` until the index is a singleton
-        while !self.is_singleton(next_min_idx) {
-            ops::fork_align(
+        // we prepare space for the next annotation, but don't fork until necessary
+        if let Some(mut prev_line) = lines.next() {
+            for line in lines {
+                ops::fork_align::<_, _, false>(
+                    &mut self.writer,
+                    &mut self.columns,
+                    next_min_idx,
+                    ..diagram_width,
+                )?;
+                self.writer
+                    .write_annotation_line(prev_line, annotation_alignment)?;
+                #[cfg(test)]
+                self.debug_cols_header("Wrote annotation line");
+
+                prev_line = line;
+            }
+
+            ops::fork_align::<_, _, true>(
                 &mut self.writer,
                 &mut self.columns,
                 next_min_idx,
-                ..edge_index_limit,
+                ..diagram_width,
             )?;
-            self.writer.newline()?;
+            self.writer
+                .write_annotation_line(prev_line, annotation_alignment)?;
+            #[cfg(test)]
+            self.debug_cols_header("Wrote final annotation line");
+        }
+
+        // write some padding lines, and also prepare for the next row simultaneously
+        for _ in 0..self.writer.config.annotation_margin_below {
+            ops::fork_align::<_, _, true>(
+                &mut self.writer,
+                &mut self.columns,
+                next_min_idx,
+                ..diagram_width,
+            )?;
+            self.writer.write_newline()?;
+            #[cfg(test)]
+            self.debug_cols_header("Wrote padding line");
+        }
+
+        // finally, prepare for the next row by repeatedly calling
+        // `fork_align` until the index is a singleton, writing enough rows
+        // to get the desired padding
+        while !self.is_singleton(next_min_idx) {
+            ops::fork_align::<_, _, true>(
+                &mut self.writer,
+                &mut self.columns,
+                next_min_idx,
+                ..diagram_width,
+            )?;
+            self.writer.write_newline()?;
             #[cfg(test)]
             self.debug_cols_header("Wrote non-marker line");
         }
