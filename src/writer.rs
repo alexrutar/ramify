@@ -5,39 +5,53 @@ use crate::config::Config;
 pub struct DiagramWriter<W> {
     pub config: Config,
     writer: W,
+    line_width: usize,
 }
 
 impl<W: io::Write> DiagramWriter<W> {
-    pub fn new(writer: W) -> Self {
+    pub fn with_default_config(writer: W) -> Self {
         Self {
             config: Config::default(),
             writer,
+            line_width: 0,
         }
+    }
+
+    /// Returns the number of characters written since the last newline.
+    pub fn line_char_count(&self) -> usize {
+        self.line_width
     }
 
     #[inline]
     pub fn branch(&mut self, b: Branch) -> io::Result<()> {
+        self.line_width += b.width();
         write!(&mut self.writer, "{b}")
     }
 
     #[inline]
     pub fn mark(&mut self, marker: char) -> io::Result<()> {
+        self.line_width += 1;
         write!(&mut self.writer, "{marker}")
     }
 
     #[inline]
     pub fn newline(&mut self) -> io::Result<()> {
-        writeln!(&mut self.writer, "")
+        self.line_width = 0;
+        writeln!(&mut self.writer)
     }
 
     #[inline]
-    pub fn annotation_line(&mut self, line: impl fmt::Display) -> io::Result<()> {
+    pub fn annotation_line(&mut self, line: impl fmt::Display, bound: usize) -> io::Result<()> {
         writeln!(
             &mut self.writer,
-            "{:>padding$}{line}",
+            "{:>align$}{:>padding$}{line}",
             "",
+            "",
+            align = bound.saturating_sub(self.line_width),
             padding = self.config.annotation_margin_left
-        )
+        )?;
+        self.line_width = 0;
+        Ok(())
     }
 }
 
@@ -139,6 +153,18 @@ impl fmt::Display for Branch {
 }
 
 impl Branch {
+    pub fn width(&self) -> usize {
+        match self {
+            Self::Continue => 1,
+            Self::Blank(n) => *n,
+            Self::ForkLeft(n) => 2 + *n,
+            Self::ForkRight(n) => 2 + *n,
+            Self::ForkMiddle(l, r) => 3 + *l + *r,
+            Self::ShiftForkLeft(s, f) => 2 + *s + *f,
+            Self::ShiftForkRight(s, f) => 2 + *s + *f,
+        }
+    }
+
     pub const fn shift_left(n: usize) -> Self {
         match n.checked_sub(1) {
             None => Branch::Continue,

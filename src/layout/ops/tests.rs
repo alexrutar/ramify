@@ -22,7 +22,7 @@ fn fork_align() {
 
         let mut target: Vec<u8> = Vec::new();
         let res = super::fork_align(
-            &mut DiagramWriter::new(&mut target),
+            &mut DiagramWriter::with_default_config(&mut target),
             &mut input_mod,
             min_index,
             bounds,
@@ -113,8 +113,12 @@ fn align() {
         let output_mod = trs(output);
 
         let mut target: Vec<u8> = Vec::new();
-        let res =
-            super::align(&mut DiagramWriter::new(&mut target), &mut input_mod, bounds).unwrap();
+        let res = super::align(
+            &mut DiagramWriter::with_default_config(&mut target),
+            &mut input_mod,
+            bounds,
+        )
+        .unwrap();
         assert_eq!(res, idx);
         assert_eq!(input_mod, output_mod);
         assert_eq!(from_utf8(&target).unwrap(), expected);

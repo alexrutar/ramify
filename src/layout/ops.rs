@@ -110,7 +110,7 @@ pub fn mark_and_prepare<V, W: io::Write>(
     offset: usize,
     min_index: usize,
 ) -> io::Result<usize> {
-    assert!(min_index < cols.len());
+    debug_assert!(min_index < cols.len());
     let Range { start: l, end: r } = column_range(cols, min_index);
 
     let col = cols[min_index].1;
@@ -132,7 +132,7 @@ pub fn mark_and_prepare<V, W: io::Write>(
 /// Given a set of columns and a minimal index valid for the set of columns,
 /// compute the range of indices which match the provided column.
 pub fn column_range<V>(cols: &[(V, usize)], idx: usize) -> Range<usize> {
-    assert!(idx < cols.len());
+    debug_assert!(idx < cols.len());
     let min_index_col = cols[idx].1;
     let mut start = idx;
 
@@ -278,7 +278,7 @@ pub fn fork_align<V, W: io::Write>(
     min_index: usize,
     bounds: impl HalfOpen,
 ) -> io::Result<usize> {
-    assert!(min_index < cols.len());
+    debug_assert!(min_index < cols.len());
     let Range { start: l, end: r } = column_range(cols, min_index);
     let mut offset = bounds.start();
 
@@ -293,10 +293,7 @@ pub fn fork_align<V, W: io::Write>(
     // perform the fork, but do not exceed either the end bound or the next char
     let fork_limit = match cols.get(r) {
         Some(end) => Some(end.1),
-        None => match bounds.end() {
-            Some(bd) => Some(bd),
-            None => None,
-        },
+        None => bounds.end(),
     };
 
     offset = match fork_limit {
@@ -317,7 +314,7 @@ pub fn fork_exact<V, W: io::Write>(
     min_index: usize,
     bounds: impl HalfOpen,
 ) -> io::Result<usize> {
-    assert!(min_index < cols.len());
+    debug_assert!(min_index < cols.len());
     let mut start = bounds.start();
     let l = 0;
 
@@ -338,7 +335,7 @@ pub fn fork_exact<V, W: io::Write>(
                     // the new minimal element follows the left fork, so all of the other
                     // elements follow the right fork
                     for (_, c) in cols[l + 1..].iter_mut() {
-                        *c = *c + 1;
+                        *c += 1;
                     }
                 } else {
                     // the new minimal element follows the right fork
@@ -364,7 +361,7 @@ pub fn fork_exact<V, W: io::Write>(
                 }
             } else {
                 for (_, c) in cols[l..min_index].iter_mut() {
-                    *c = *c - space_on_left;
+                    *c -= space_on_left;
                 }
                 cols[min_index].1 = cols[min_index].1 + 1 - space_on_left;
             }
@@ -395,7 +392,7 @@ pub fn fork_exact<V, W: io::Write>(
 
             // update the column values
             for (_, c) in cols[l..min_index].iter_mut() {
-                *c = *c - space_on_left;
+                *c -= space_on_left;
             }
             cols[min_index].1 = cur_col - space_on_left + 1;
             for (_, c) in cols[min_index + 1..].iter_mut() {

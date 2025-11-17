@@ -32,9 +32,13 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
     /// 0
     /// ├┬╮
     /// │1│
-    /// │╭╯
+    /// ├╮╰─╮
     /// ```
-    /// has maximum edge index `1`.
+    /// has maximum edge index `4`.
+    ///
+    /// This is not the same as the width of the diagram row which was previously written. However,
+    /// we can use this information to compute the width of the diagram row by taking the maximum of the edge index and the
+    /// edge index prior to writing a row, and then adding `1`.
     pub fn max_edge_index(&self) -> Option<usize> {
         self.columns.last().map(|(_, c)| *c)
     }
@@ -49,6 +53,158 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
     /// Whether or not there are any active vertices.
     pub fn is_empty(&self) -> bool {
         self.columns.is_empty()
+    }
+
+    fn min_index(&self) -> Option<usize> {
+        self.columns
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, (e, _))| self.ramifier.get_key(*e))
+            .map(|(a, _)| a)
+    }
+
+    fn replace_index(&mut self, idx: usize) -> (V, usize, Range<usize>) {
+        #[cfg(test)]
+        self.debug_cols_header("Replacing min index");
+        let original_col_count = self.columns.len();
+        let (vtx, col) = self.columns[idx];
+
+        // replace this element with its children in place
+        self.columns.splice(
+            idx..idx + 1,
+            // also store the column index from which the item originated
+            self.ramifier.children(vtx).zip(repeat(col)),
+        );
+
+        // compute the number of new elements added by checking how much the length changed.
+        let child_count = self.columns.len() + 1 - original_col_count;
+
+        #[cfg(test)]
+        self.debug_cols();
+
+        (vtx, col, idx..idx + child_count)
+    }
+
+    // FIXME: multiline
+    fn write_annotation(&mut self, vtx: V, edge_index_limit: usize) -> io::Result<()> {
+        match self.ramifier.annotation(vtx, edge_index_limit) {
+            Some(line) => self.writer.annotation_line(line, edge_index_limit),
+            None => self.writer.newline(),
+        }
+    }
+
+    fn is_singleton(&self, idx: usize) -> bool {
+        let Range { start: l, end: r } = ops::column_range(&self.columns, idx);
+        l + 1 == r
+    }
+
+    /// Write a line containing a marker assuming, along will all of the subsequent lines.
+    pub fn write_next_marker(&mut self) -> io::Result<bool> {
+        let Some(min_idx) = self.min_index() else {
+            return Ok(false);
+        };
+
+        // perform the substitution first since we will use information
+        // about the next minimal element in order to make predictive writes
+        let (vtx, col, Range { start: l, end: r }) = self.replace_index(min_idx);
+        let marker_char = self.ramifier.marker(vtx);
+
+        // either get the next minimal index, or write the final line and annotation and return
+        let Some(next_min_idx) = self.min_index() else {
+            let diagram_width = ops::marker(&mut self.writer, marker_char, 0, col)?;
+
+            self.write_annotation(vtx, diagram_width)?;
+            return Ok(false);
+        };
+
+        // TODO: work out other strategies
+        //
+        // Option 1: Also take maximum with current width? Are there cases where
+        //           this is better / worse?
+        // Option 2: Greedy: set this to current width + 2, so the fork can immediately
+        //           get more space if needed
+        // Option 3: Allow some slack parameter u >= 0, which we just add.
+        //
+        // Handling these cases causes more difficulty with annotations since we need
+        // to predict how much of the slack space we will actually use
+        let edge_index_limit = ops::required_width(&self.columns, next_min_idx);
+
+        let mut offset;
+
+        if next_min_idx < l {
+            // the next minimal index lands before the marker
+
+            // TODO: when we do multiline / margin, we cannot immediately fork here; instead, we
+            // need this method and also a 'prepare fork' method, and to call the `fork_align`
+            // method only if we know there are no more annotation lines / padding to be written
+
+            // we use `..col` since want to prepare space to fork, but we cannot exceed the marker
+            // position
+            offset = ops::fork_align(
+                &mut self.writer,
+                &mut self.columns[..l],
+                next_min_idx,
+                ..col,
+            )?;
+
+            offset = ops::marker(&mut self.writer, marker_char, offset, col)?;
+            ops::align(
+                &mut self.writer,
+                &mut self.columns[r..],
+                offset..edge_index_limit,
+            )?
+        } else if next_min_idx < r {
+            // the next minimal index is a child of the marker
+
+            // first, we use `align` on the preceding columns to make as much space as
+            // possible. we can use the unbounded version since `align` by default compats and this
+            // may result in better codegen
+            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
+            offset = ops::mark_and_prepare(
+                &mut self.writer,
+                &self.columns,
+                marker_char,
+                offset,
+                next_min_idx,
+            )?;
+            ops::align(
+                &mut self.writer,
+                &mut self.columns[r..],
+                offset..edge_index_limit,
+            )?
+        } else {
+            // the next minimal index follows the marker
+
+            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
+            offset = ops::marker(&mut self.writer, marker_char, offset, col)?;
+            ops::fork_align(
+                &mut self.writer,
+                &mut self.columns[r..],
+                next_min_idx - r,
+                offset..edge_index_limit,
+            )?
+        };
+
+        self.write_annotation(vtx, edge_index_limit)?;
+
+        #[cfg(test)]
+        self.debug_cols_header(format!("Wrote marker line with marker {marker_char}"));
+
+        // finally, prepare for the next row by repeatedly calling
+        // `fork_align` until the index is a singleton
+        while !self.is_singleton(next_min_idx) {
+            ops::fork_align(
+                &mut self.writer,
+                &mut self.columns,
+                next_min_idx,
+                ..edge_index_limit,
+            )?;
+            self.writer.newline()?;
+            #[cfg(test)]
+            self.debug_cols_header("Wrote non-marker line");
+        }
+
+        Ok(true)
     }
 
     #[cfg(test)]
@@ -74,170 +230,7 @@ impl<V: Copy, R: Ramify<V>, W: io::Write> BranchDiagram<V, R, W> {
                 print!(" ({} {col})", self.ramifier.marker(*v));
             }
             println!();
-            assert!(self.columns.iter().is_sorted_by_key(|(_, c)| c));
+            debug_assert!(self.columns.iter().is_sorted_by_key(|(_, c)| c));
         }
-    }
-
-    fn min_index(&self) -> Option<usize> {
-        self.columns
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, (e, _))| self.ramifier.get_key(*e))
-            .map(|(a, _)| a)
-    }
-
-    fn replace_index_unchecked(&mut self, idx: usize) -> (V, usize, Range<usize>) {
-        #[cfg(test)]
-        self.debug_cols_header("Replacing min index");
-        let original_col_count = self.columns.len();
-        let (vtx, col) = self.columns[idx];
-
-        // replace this element with its children in place
-        self.columns.splice(
-            idx..idx + 1,
-            // also store the column index from which the item originated
-            self.ramifier.children(vtx).zip(repeat(col)),
-        );
-
-        // compute the number of new elements added by checking how much the length changed.
-        let child_count = self.columns.len() + 1 - original_col_count;
-
-        // update the min index
-        // self.min_index = self
-        //     .columns
-        //     .iter()
-        //     .enumerate()
-        //     .min_by_key(|(_, (e, _))| self.ramifier.get_key(*e))
-        //     .map(|(a, _)| a);
-
-        #[cfg(test)]
-        self.debug_cols();
-
-        (vtx, col, idx..idx + child_count)
-    }
-
-    // FIXME: multiline
-    fn write_annotation(&mut self, vtx: V, offset: usize) -> io::Result<()> {
-        match self.ramifier.annotation(vtx, offset) {
-            Some(line) => self.writer.annotation_line(line),
-            None => self.writer.newline(),
-        }
-    }
-
-    fn is_singleton_index(&self, idx: usize) -> bool {
-        let Range { start: l, end: r } = ops::column_range(&self.columns, idx);
-        l + 1 == r
-    }
-
-    /// Write a line containing a marker assuming, along will all of the subsequent lines.
-    pub fn write_next_marker(&mut self) -> io::Result<bool> {
-        let Some(min_idx) = self.min_index() else {
-            return Ok(false);
-        };
-
-        // perform the substitution first since we will use information
-        // about the next minimal element in order to make predictive writes
-        let (vtx, col, Range { start: l, end: r }) = self.replace_index_unchecked(min_idx);
-        let marker_char = self.ramifier.marker(vtx);
-
-        // either get the next minimal index, or write the final line and annotation and return
-        let Some(next_min_idx) = self.min_index() else {
-            let diagram_width = ops::marker(&mut self.writer, marker_char, 0, col)?;
-
-            self.write_annotation(vtx, diagram_width)?;
-            return Ok(false);
-        };
-
-        // TODO: work out other strategies
-        //
-        // Option 1: Also take maximum with current width? Are there cases where
-        //           this is better / worse?
-        // Option 2: Greedy: set this to current width + 2, so the fork can immediately
-        //           get more space if needed
-        // Option 3: Allow some slack parameter u >= 0, which we just add.
-        //
-        // Handling these cases causes more difficulty with annotations since we need
-        // to predict how much of the slack space we will actually use
-        let diagram_width = ops::required_width(&self.columns, next_min_idx);
-        dbg!(diagram_width);
-
-        if next_min_idx < l {
-            // the next minimal index lands before the marker
-            let mut offset;
-
-            // TODO: when we do multiline / margin, we cannot immediately fork here; instead, we
-            // need this method and also a 'prepare fork' method, and to call the `fork_align`
-            // method only if we know there are no more annotation lines / padding to be written
-
-            // we use `..col` since want to prepare space to fork, but we cannot exceed the marker
-            // position
-            offset = ops::fork_align(
-                &mut self.writer,
-                &mut self.columns[..l],
-                next_min_idx,
-                ..col,
-            )?;
-
-            offset = ops::marker(&mut self.writer, marker_char, offset, col)?;
-            offset = ops::align(
-                &mut self.writer,
-                &mut self.columns[r..],
-                offset..diagram_width,
-            )?;
-            self.write_annotation(vtx, offset)?;
-        } else if next_min_idx < r {
-            // the next minimal index is a child of the marker
-            let mut offset;
-
-            // first, we use `align` on the preceding columns to make as much space as
-            // possible. we can use the unbounded version since `align` by default compats and this
-            // may result in better codegen
-            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
-            offset = ops::mark_and_prepare(
-                &mut self.writer,
-                &self.columns,
-                marker_char,
-                offset,
-                next_min_idx,
-            )?;
-            offset = ops::align(
-                &mut self.writer,
-                &mut self.columns[r..],
-                offset..diagram_width,
-            )?;
-            self.write_annotation(vtx, offset)?;
-        } else {
-            // the next minimal index follows the marker
-            let mut offset;
-
-            offset = ops::align(&mut self.writer, &mut self.columns[..l], ..)?;
-            offset = ops::marker(&mut self.writer, marker_char, offset, col)?;
-            offset = ops::fork_align(
-                &mut self.writer,
-                &mut self.columns[r..],
-                next_min_idx - r,
-                offset..diagram_width,
-            )?;
-            self.write_annotation(vtx, offset)?;
-        }
-
-        #[cfg(test)]
-        self.debug_cols_header(format!("Wrote marker line with marker {marker_char}"));
-
-        // finally, prepare for the next row by repeatedly calling
-        // `fork_align` until the index is a singleton
-        while !self.is_singleton_index(next_min_idx) {
-            ops::fork_align(
-                &mut self.writer,
-                &mut self.columns,
-                next_min_idx,
-                ..diagram_width,
-            )?;
-            self.writer.newline()?;
-            #[cfg(test)]
-            self.debug_cols_header("Wrote non-marker line");
-        }
-
-        Ok(true)
     }
 }

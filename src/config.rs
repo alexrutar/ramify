@@ -23,6 +23,20 @@ impl Default for Config {
 /// [`sharp_corners`](Self::sharp_corners) charset. The [box
 /// drawing](https://en.wikipedia.org/wiki/Box_Drawing) Unicode block can be used to build
 /// different character sets.
+///
+/// Most characters are self-explanatory, but there are two notes.
+///
+/// 1. The [`internal_whitespace`](Self::internal_whitespace) character is used to write whitespace
+///    which is considered to be part of the branch diagram. For example, it is written when
+///    a row is skipped because it will be occupied by a future row, to prevent jitter.
+///    Occasionally, this character is written at the end of a row. For example, if a 3-way fork
+///    cannot be fully written, it will still reserve space for itself by writing a whitespace
+///    character. If the fork cannot be fully written because of row width limits, it will still
+///    partially write whitespace characters.
+///
+/// 2. The [`up_and_horizontal`](Self::up_and_horizontal) character is never used in the standard
+///    top-down printing. However, it is used for vertical reflections, which are necessary to
+///    print trees "upside down".
 pub struct Charset {
     /// The '│' character.
     pub vertical: char,
@@ -46,6 +60,8 @@ pub struct Charset {
     pub up_and_horizontal: char,
     /// The '─' character.
     pub horizontal: char,
+    /// The ` ` character.
+    pub internal_whitespace: char,
 }
 
 impl Default for Charset {
@@ -74,6 +90,7 @@ impl Charset {
             up_and_right: '╰',
             horizontal: '─',
             vertical: '│',
+            internal_whitespace: ' ',
         }
     }
 

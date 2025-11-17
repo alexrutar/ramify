@@ -44,7 +44,11 @@ fn assert_diag(root: Vertex<char>, expected: &str) {
     println!("\nExpecting tree:\n{expected}");
 
     let mut output: Vec<u8> = Vec::new();
-    let mut cols = BranchDiagram::new(&root, CharTreeRamifier, DiagramWriter::new(&mut output));
+    let mut cols = BranchDiagram::new(
+        &root,
+        CharTreeRamifier,
+        DiagramWriter::with_default_config(&mut output),
+    );
     while cols.write_next_marker().unwrap() {}
 
     let received = std::str::from_utf8(&output).unwrap();
@@ -70,7 +74,7 @@ fn lookahead() {
     assert_diag(
         root,
         "\
-0 #
+0   #
 ├┬╮
 │1│ #
 2│╰─╮ #
@@ -89,7 +93,7 @@ fn lookahead() {
 fn small() {
     let expected_diags = [
         "\
-0 #
+0  #
 ├╮
 1│ #
 ╭┤
@@ -97,7 +101,7 @@ fn small() {
  3 #
 ",
         "\
-0 #
+0  #
 ├╮
 1│ #
 ╭┤
@@ -105,14 +109,14 @@ fn small() {
 3 #
 ",
         "\
-0 #
+0   #
 ├┬╮
 │1│ #
 2╭╯ #
  3 #
 ",
         "\
-0 #
+0  #
 ├╮
 │1 #
 ├╮
@@ -120,14 +124,14 @@ fn small() {
  3 #
 ",
         "\
-0 #
+0   #
 ├┬╮
 │1│ #
 │ 2 #
 3 #
 ",
         "\
-0 #
+0  #
 ├╮
 │1 #
 ├╮
@@ -172,7 +176,7 @@ fn long_skip() {
     assert_diag(
         root,
         "\
-0 #
+0  #
 ├╮
 1├╮ #
 │2│ #
@@ -202,11 +206,11 @@ fn long_inner_path() {
     assert_diag(
         root,
         "\
-0 #
+0   #
 ├┬╮
 │1├╮ #
 ││2│ #
-│╰╮3 #
+│╰╮3  #
 │ │╰╮
 │ ╰╮│
 ├┬╮││
@@ -235,7 +239,7 @@ fn width_jitter() {
     assert_diag(
         root,
         "\
-0 #
+0   #
 ├┬╮
 │1│ #
 │╭┤
@@ -269,7 +273,7 @@ fn no_lookahead() {
     assert_diag(
         root,
         "\
-0 #
+0   #
 ├┬╮
 │1│ #
 2│╰╮ #
@@ -310,11 +314,11 @@ fn complex_width_computations() {
     assert_diag(
         root,
         "\
-0 #
+0   #
 ├┬╮
 │1├╮ #
 ││2│ #
-│╰╮3 #
+│╰╮3  #
 │ │╰╮
 │ ╰╮│
 ├┬╮││
@@ -332,6 +336,38 @@ fn complex_width_computations() {
 ╭───╯b│ #
 c╭────╯ #
  d #
+",
+    );
+}
+
+#[test]
+fn annotation_whitespace_management() {
+    let root = {
+        let v8 = Vertex::leaf('8');
+        let v7 = Vertex::leaf('7');
+        let v6 = Vertex::leaf('6');
+        let v5 = Vertex::leaf('5');
+        let v4 = Vertex::leaf('4');
+        let v3 = Vertex::leaf('3');
+        let v2 = Vertex::inner('2', vec![v6]);
+        let v1 = Vertex::inner('1', vec![v3]);
+        Vertex::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    };
+    assert_diag(
+        root,
+        "\
+0   #
+├┬╮
+│1├╮ #
+││2│ #
+│3││  #
+│╭╯│ 
+││╭┼╮
+│││4│ #
+││5╭╯ #
+│6╭╯ #
+7╭╯ #
+ 8 #
 ",
     );
 }
