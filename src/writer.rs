@@ -4,7 +4,7 @@
 //! [`Generator`](crate::Generator) when drawing the branch diagram.
 //!
 //! The [`Config`] struct uses compile-time specification of the drawing style. You can implement
-//! your own; see the [`BranchWrite`] trait. An implementation of this trait in simple cases can be
+//! your own; see the [`WriteBranch`] trait. An implementation of this trait in simple cases can be
 //! auto-generated using the [`branch_writer`] macro.
 //!
 //! Follow the above documentation links for more detail. Just below you will find a [style gallery](#style-gallery).
@@ -39,8 +39,7 @@
 
 mod branch;
 
-use self::branch::branch_writer_impl;
-pub use self::branch::{Branch, branch_writer};
+pub use self::branch::{__branch_writer_impl, Branch, branch_writer};
 
 use std::{fmt, io, marker::PhantomData};
 
@@ -53,6 +52,12 @@ pub struct Config<B = RoundedCorners> {
     /// The margin between the annotation and the branch diagram. The default is `1`.
     pub(crate) margin_left: usize,
     branch_writer: PhantomData<B>,
+}
+
+impl<B> Default for Config<B> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<B> Config<B> {
@@ -143,7 +148,7 @@ pub(crate) struct DiagramWriter<W, B> {
     marker: PhantomData<B>,
 }
 
-impl<'a, W: io::Write, B: BranchWrite> DiagramWriter<W, B> {
+impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     /// Initialize a new diagram writer with the provided configuration and writer.
     pub fn new(writer: W) -> Self {
         Self {
@@ -226,45 +231,93 @@ impl<'a, W: io::Write, B: BranchWrite> DiagramWriter<W, B> {
 
     fn branch_width(&self, b: &Branch) -> usize {
         if B::WIDE {
-            self.branch_width_wide(b)
+            b.width_wide()
         } else {
-            self.branch_width_narrow(b)
-        }
-    }
-
-    fn branch_width_narrow(&self, b: &Branch) -> usize {
-        match b {
-            Branch::Continue => 1,
-            Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 2 + shift,
-            Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 2,
-            Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => 3 + shift,
-            Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => 4 + shift,
-            Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 3,
-        }
-    }
-
-    fn branch_width_wide(&self, b: &Branch) -> usize {
-        match b {
-            Branch::Continue => 1,
-            Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 3 + 2 * shift,
-            Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 3,
-            Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => {
-                5 + 2 * shift
-            }
-            Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => {
-                7 + 2 * shift
-            }
-            Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 5,
+            b.width_narrow()
         }
     }
 }
 
-/// TODO
-pub trait BranchWrite {
-    /// TODO
+/// A special writer that a [`Generator`](crate::Generator) uses to write the characters used in
+/// the branch diagram.
+///
+/// Implementing this trait yourself is rather annoying and should only be done in exceptional
+/// situations. Usually, you just want to use a built-in implementation, such as the
+/// recommended [`RoundedCorners`] style, or another style chosen from an implementation in the
+/// [writer](self) module. If this is unsatisfactory, see the [`branch_writer`] macro. If this is
+/// still unsatisfactory, read on!
+///
+/// ## Implementing [`WriteBranch`]
+///
+/// In order to understand how to implement [`WriteBranch`], it is important to know how a
+/// [`Generator`](crate::Generator) writes a branch diagram.
+///
+/// Consider the following incomplete branch diagram:
+/// ```txt
+/// 0
+/// ├┬╮
+/// │1│
+/// 2│╰╮
+/// │╰╮│
+/// ├╮││
+/// 3│││
+/// ╭╯││
+/// ```
+/// Ths branch diagram is composed of individual box-drawing characters (used for the lines), as well as the characters
+/// used for the vertices (here, `0123`). It can also happen that a branch diagram has internal whitespace, in
+/// which case those characters can also be part of the diagram.
+///
+/// The responsiblity of a [`WriteBranch`] implementation is *only* to write the lines in the
+/// branch diagram.
+/// In order to drive the [`WriteBranch`] implementation, the layout algorithm emits
+/// [`Branch`]es, which are symbolic representations of the components used in a diagram.
+/// The [`WriteBranch`] implementation takes the branch and writes the characters to the writer.
+///
+/// For performance reasons, instead of working directly with a [writer](io::Write), the
+/// implementation is requested to generate a format template which can be immediately passed to a
+/// closure for writing.
+///
+/// A prototypical example implementation the following.
+/// ```
+/// use std::{fmt, io};
+/// use ramify::writer::{Branch, WriteBranch};
+///
+/// struct MyCustomStyle;
+///
+/// impl WriteBranch for MyCustomStyle {
+///     const WIDE: bool = false;
+///
+///     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
+///     where
+///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
+///         match b {
+///             Branch::ForkDoubleShiftLeft(shift) => {
+///                 f(format_args!("{:>ws$}╭┬{:─>shift$}╯", "", "", ws = ws, shift = shift))?;
+///             }
+///             _ => todo!(),
+///         }
+///
+///         Ok(())
+///     }
+/// }
+/// ```
+/// We see that the template does two things: it writes the requested whitespace at the beginning of the string,
+/// and then writes the branch itself.
+///
+/// TODO: explain `WIDE` mode.
+///
+/// The width of the resulting branch (not including the whitespace prefix) must be exactly equal
+/// to the result returned by [`Branch::width_narrow`] or [`Branch::width_wide`].
+pub trait WriteBranch {
+    /// Set this to `true` if the diagram is wide (i.e., has extra internal columns between each row),
+    /// and otherwise `false.
     const WIDE: bool;
 
-    /// TODO
+    /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
+    ///
+    /// In order to optimize writes, the writer `f` only accepts an [`Arguments`](fmt::Arguments)
+    /// struct, which must be generated by using the [`format_args`] macro. Repetition and other
+    /// runtime-only operations must be handled with [formatting paramters](std::fmt#formatting-parameters).
     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
     where
         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()>;
@@ -291,10 +344,10 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
-    pub struct RoundedCorners;
-
-    charset => {"│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"},
-    wide => false
+    pub struct RoundedCorners {
+        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+        wide: false
+    }
 );
 
 branch_writer!(
@@ -318,10 +371,10 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
-    pub struct SharpCorners;
-
-    charset => {"│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"},
-    wide => false
+    pub struct SharpCorners {
+        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+        wide: false
+    }
 );
 
 branch_writer!(
@@ -345,10 +398,10 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
-    pub struct RoundedCornersWide;
-
-    charset => {"│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"},
-    wide => true
+    pub struct RoundedCornersWide {
+        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+        wide: true,
+    }
 );
 
 branch_writer!(
@@ -372,14 +425,14 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
-    pub struct SharpCornersWide;
-
-    charset => {"│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"},
-    wide => true
+    pub struct SharpCornersWide {
+        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+        wide: true
+    }
 );
 
 branch_writer!(
-    /// A style which uses doubled lines corners and additional internal whitespace.
+    /// A style which uses doubled lines and additional internal whitespace.
     /// ```
     #[doc = include_str!("writer/doctest_init.txt")]
     /// # let config = Config::<DoubledLines>::new();
@@ -399,8 +452,8 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
-    pub struct DoubledLines;
-
-    charset => {"║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"},
-    wide => true
+    pub struct DoubledLines {
+        charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
+        wide: true
+    }
 );

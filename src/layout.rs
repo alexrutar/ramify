@@ -7,8 +7,8 @@ use std::{io, iter::repeat, ops::Range};
 use crate::{
     Config, Ramify,
     writer::{
-        BranchWrite, DiagramWriter, DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners,
-        SharpCornersWide,
+        DiagramWriter, DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners,
+        SharpCornersWide, WriteBranch,
     },
 };
 
@@ -43,7 +43,7 @@ pub struct Generator<V, R, B = RoundedCorners> {
     annotation_buf: String,
 }
 
-impl<V, R, B: BranchWrite> Generator<V, R, B> {
+impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Get a new branch diagram generator starting at a given vertex of type `V` using the provided
     /// configuration.
     pub fn init(root: V, ramifier: R, config: Config<B>) -> Self {
@@ -81,7 +81,7 @@ impl<V, R, B: BranchWrite> Generator<V, R, B> {
     }
 }
 
-impl<V: Copy, R: Ramify<V>, B: BranchWrite> Generator<V, R, B> {
+impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// Write a row containing a vertex along with its annotation to the provided writer.
     ///
     /// This method returns `Ok(true)` if there are vertices remaining, and otherwise `Ok(false)`.

@@ -6,7 +6,7 @@ use std::{
     ops::{Range, RangeFrom, RangeFull, RangeTo},
 };
 
-use crate::writer::{Branch, BranchWrite, DiagramWriter};
+use crate::writer::{Branch, DiagramWriter, WriteBranch};
 
 /// A half-open [`usize`] range; essentially, one of `..`, `a..`, `..b`, or `a..b`.
 pub trait HalfOpen {
@@ -84,7 +84,7 @@ pub fn required_width<V>(cols: &[(V, usize)], min_index: usize) -> usize {
 /// Write the marker character.
 ///
 /// Since the marker position cannot move, write blanks before the marker if necessary.
-pub fn marker<W: io::Write, B: BranchWrite>(
+pub fn marker<W: io::Write, B: WriteBranch>(
     writer: &mut DiagramWriter<W, B>,
     marker: char,
     offset: usize,
@@ -103,7 +103,7 @@ pub fn marker<W: io::Write, B: BranchWrite>(
 
 /// Write the marker character and also do computations to adjust the returned offset to try to
 /// make space for the next marker
-pub fn mark_and_prepare<V, W: io::Write, B: BranchWrite>(
+pub fn mark_and_prepare<V, W: io::Write, B: WriteBranch>(
     writer: &mut DiagramWriter<W, B>,
     cols: &[(V, usize)],
     marker: char,
@@ -156,7 +156,7 @@ pub fn column_range<V>(cols: &[(V, usize)], idx: usize) -> Range<usize> {
 /// This returns the end index of the range required to satisfy the provided alignment.
 /// If the alignment was satisfied, this is just the last column plus one. When chaining alignments
 /// together, this index should be used as the start bound for the subsequent alignment.
-pub fn align<V, W: io::Write, B: BranchWrite>(
+pub fn align<V, W: io::Write, B: WriteBranch>(
     writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     bounds: impl HalfOpen,
@@ -278,7 +278,7 @@ pub fn align<V, W: io::Write, B: BranchWrite>(
 /// ```
 /// this is no longer the case: we cannot fork immediately before vertex `2` because vertex `1` is
 /// still occupying the position, so we need to wait one extra row to fork.
-pub fn fork_align<V, W: io::Write, B: BranchWrite, const FORK: bool>(
+pub fn fork_align<V, W: io::Write, B: WriteBranch, const FORK: bool>(
     writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     min_index: usize,
@@ -316,7 +316,7 @@ pub fn fork_align<V, W: io::Write, B: BranchWrite, const FORK: bool>(
 }
 
 /// Perform a fork, where the fork corresponds exactly to the provided columns.
-pub fn fork_exact<V, W: io::Write, B: BranchWrite, const FORK: bool>(
+pub fn fork_exact<V, W: io::Write, B: WriteBranch, const FORK: bool>(
     writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     min_index: usize,

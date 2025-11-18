@@ -4,7 +4,7 @@ mod single;
 
 use std::fmt::{self, Write};
 
-use crate::{Config, writer::BranchWrite};
+use crate::{Config, writer::WriteBranch};
 
 use super::*;
 
@@ -27,7 +27,7 @@ impl<T> Vertex<T> {
     }
 }
 
-fn assert_diag_impl<R: for<'a> Ramify<&'a Vertex<char>>, B: BranchWrite>(
+fn assert_diag_impl<R: for<'a> Ramify<&'a Vertex<char>>, B: WriteBranch>(
     root: Vertex<char>,
     expected: &str,
     ramifier: R,

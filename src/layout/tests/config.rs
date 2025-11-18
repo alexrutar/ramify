@@ -2,7 +2,7 @@ use crate::writer::{RoundedCorners, RoundedCornersWide, SharpCorners, SharpCorne
 
 use super::*;
 
-fn assert_diag<B: BranchWrite>(root: Vertex<char>, config: Config<B>, expected: &str) {
+fn assert_diag<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expected: &str) {
     struct Ramifier;
 
     impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
@@ -24,7 +24,7 @@ fn assert_diag<B: BranchWrite>(root: Vertex<char>, config: Config<B>, expected: 
     assert_diag_impl(root, expected, Ramifier, config)
 }
 
-fn assert_diag_annot<B: BranchWrite>(root: Vertex<char>, config: Config<B>, expected: &str) {
+fn assert_diag_annot<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expected: &str) {
     struct AnnotatingRamifier;
 
     impl<'t> Ramify<&'t Vertex<char>> for AnnotatingRamifier {
