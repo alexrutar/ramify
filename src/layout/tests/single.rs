@@ -5,7 +5,7 @@ struct Ramifier;
 impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
     type Key = char;
 
-    fn children(&self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+    fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
         vtx.children.iter()
     }
 

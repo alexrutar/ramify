@@ -29,6 +29,11 @@
 //!   the [`Ramify`] trait for more detail.
 //!
 //! ## Basic examples
+//! TODO: write
+//!
+//! - fancy examples? spanning tree of a graph; vertex weights are visitation order (breadth first
+//!   search); like a* algorithm
+//! - 'ramify' allowed to take mutable self-reference?
 
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
@@ -50,11 +55,11 @@ pub use self::{layout::Generator, writer::Config};
 /// ```
 /// struct Vtx<T>(T, Vec<Vtx<T>>);
 /// ```
-/// then `V` is probably a reference `&'t Vertex`. If your data is stored in some sort of flat data structure, then `V` is
-/// perhaps an index like `usize`. In any case, it should be quite lightweight. Many methods in
-/// this crate assume that it is [`Copy`].
+/// then `V` is probably a reference `&'t Vtx`. If your data is stored in some sort of flat data structure, then `V` is
+/// perhaps an index like `usize`. In any case, it should be lightweight. In particular, [`Generator`] requires
+/// that `V` is [`Copy`].
 pub trait Ramify<V> {
-    /// The data by which the vertices should be sorted.
+    /// The key by which the vertices should be sorted.
     ///
     /// See [`Ramify::get_key`] for more detail.
     type Key: Ord;
@@ -79,7 +84,7 @@ pub trait Ramify<V> {
     /// ```
     /// Iterating in sorted order (either increasing or decreasing) or otherwise guaranteeing that
     /// the minimal element is first or last tends to produce narrower trees since this avoids 3-way forks.
-    fn children(&self, vtx: V) -> impl Iterator<Item = V>;
+    fn children(&mut self, vtx: V) -> impl Iterator<Item = V>;
 
     /// Get the key associated with a vertex.
     ///
@@ -98,6 +103,11 @@ pub trait Ramify<V> {
     /// The keys are drawn in increasing order.
     /// Use [`Reverse`](std::cmp::Reverse) or a custom [`Ord`] implementation if the vertices in your
     /// tree should be arranged in decreasing order.
+    ///
+    /// In many standard use-cases, the children of a vertex are greater than the
+    /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
+    /// The next vertex which is drawn is simply the minimal vertex out of the active vertices,
+    /// that is those vertices with an immediate parent already drawn to the diagram.
     fn get_key(&self, vtx: V) -> Self::Key;
 
     /// The vertex marker in the branch diagram.

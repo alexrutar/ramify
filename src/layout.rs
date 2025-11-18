@@ -18,24 +18,20 @@ use crate::{
 /// diagram can be incrementally written to a [writer](io::Write) using the
 /// [`write_next_vertex`](Self::write_next_vertex) method.
 ///
-/// ## Internal state
-/// The generator corresponds to the state at the `tip` of a partially written branch diagram. In
-/// order to reduce the width of the branch diagram, multiple vertices can share the same edges
-/// within the diagram.
+/// The documentation here is mostly relevant for using the [`Generator`]. The layout documentation
+/// and an explanation of the internal state can be found in the [`writer`
+/// module](crate::writer#layout-algorithm-documentation).
 ///
-/// For example, consider the following partial branch diagram. The vertex `0` is the root.
+/// ## Compile-time and dynamic configuration
+/// This struct can be configured by passing an appropriate [`Config`] struct. The configuration
+/// contains compile-time and runtime configuration. The compile-time configuration is included in
+/// the state parameter (for example, a [`RoundedCorners`] parameter), which describes the appearance of the
+/// branch diagram. The runtime configuration concerns features relevant to the layout algorithm.
 ///
-/// We can see that it has children `3`, `1`, and `2`. The vertex `2` also has a child `4`. These
-/// vertices also have an unknown number of children that have not yet been drawn, corresponding to the
-/// outgoing edges at the bottom of the diagram.
-/// ```txt
-/// 0
-/// ├┬╮
-/// │1│
-/// ├╮2
-/// 3│├╮
-/// │││4
-/// ```
+/// It is possible to modify configuration while writing the diagram (that is, in between calls to
+/// [`write_next_vertex`](Self::write_next_vertex)) by using the [`config_mut`](Self::config_mut)
+/// method. Any such modifications of the configuration are guaranteed to not
+/// corrupt the branch diagram.
 pub struct Generator<V, R, B = RoundedCorners> {
     columns: Vec<(V, usize)>,
     ramifier: R,
@@ -75,7 +71,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 
     /// Get a mutable reference to the configuration in order to change configuration parameters
-    /// while generating branch diagram.
+    /// while generating the branch diagram.
     pub fn config_mut(&mut self) -> &mut Config<B> {
         &mut self.config
     }
@@ -86,7 +82,7 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     ///
     /// This method returns `Ok(true)` if there are vertices remaining, and otherwise `Ok(false)`.
     ///
-    /// ## Output rows
+    /// # Output rows
     ///
     /// A single call to this method will first write the row containing the vertex. Then, it will
     /// write a number of non-marker rows in order to accommodate additional lines of annotation
@@ -94,7 +90,7 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// a vertex.
     ///
     ///
-    /// ## Buffered writes
+    /// # Buffered writes
     ///
     /// The implementation tries to minimize the number of calls to `write!` made by this method,
     /// but the number of calls is still large. It is recommended that the provided writer is
@@ -175,13 +171,14 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
         // TODO: work out other strategies
         //
         // Option 1: Also take maximum with current width? Are there cases where
-        //           this is better / worse?
-        // Option 2: Greedy: set this to current width + 2, so the fork can immediately
-        //           get more space if needed
-        // Option 3: Allow some slack parameter u >= 0, which we just add.
+        //           this is better / worse? Call this `avoid_contracting`?
+        // Option 2: Allow some slack parameter u >= 0, which we just add.
+        // Option 3: Allow a 'minimal slack', i.e. a range before which we don't optimize
+        //           for space.
         //
         // Handling these cases causes more difficulty with annotations since we need
-        // to predict how much of the slack space we will actually use
+        // to predict how much of the slack space we will actually use. Maybe we can just
+        // reserve the extra space no matter what and put the annotation at the end.
         let diagram_width = ops::required_width(&self.columns, next_min_idx);
 
         let delay_fork = self.config.margin_below > 0;

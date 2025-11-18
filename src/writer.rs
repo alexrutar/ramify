@@ -36,7 +36,48 @@
 //!
 //! ## Layout algorithm documentation
 //! TODO: not written
-
+//!
+//! Explain:
+//!
+//! - introduce basic terminology; vertex; children; parent
+//! - idea of 'active' vertices (vertices not yet drawn for which the parent has already been
+//!   drawn)
+//! - idea of the 'state' being intermediate between two rows
+//! - predictive rendering and preparation for following vertices
+//! - delayed branching (if there is padding)
+//! - width limitations (how it relates to slack, and a minimum slack parameter)
+//! - the algorithm used to compute how much width is required
+//! - explain how width interacts with the annotation (we need to make space, so the tree does not
+//!   overlap with the annotation in subsequent rows)
+//! - one step lookahead, but not more
+//! - 2-way vs 3-way forks; child order
+//! - annotation layout, make 'box limit' diagrams showing where the various margins are, etc.
+//! - internal data model, i.e. a sorted vec of columns with vertices
+//! - description of the fundamental components of the algorithm (basically, operations which
+//!   attempt to move a given column to a new location, plus 'forks', and unmoveable markers)
+//! - whitespace management; no trailing whitespace; buffered whitespace (explain how this relates
+//!   to [`WriteBranch`]).
+//! - children having mutable self-reference, but none of the other methods
+///
+/// ### Internal state
+/// The generator corresponds to the state at the `tip` of a partially written branch diagram. In
+/// order to reduce the width of the branch diagram, multiple vertices can share the same edges
+/// within the diagram.
+///
+/// For example, consider the following partial branch diagram. The vertex `0` is the root.
+///
+/// We can see that it has children `3`, `1`, and `2`. The vertex `2` also has a child `4`. These
+/// vertices also have an unknown number of children that have not yet been drawn, corresponding to the
+/// outgoing edges at the bottom of the diagram.
+/// ```txt
+/// 0
+/// ├┬╮
+/// │1│
+/// ├╮2
+/// 3│├╮
+/// │││4
+/// ```
+/// TODO: write more
 mod branch;
 
 pub use self::branch::{__branch_writer_impl, Branch, branch_writer};
@@ -301,7 +342,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///     }
 /// }
 /// ```
-/// We see that the template does two things: it writes the requested whitespace at the beginning of the string,
+/// We see that the format template does two things simultaneusly: it writes the requested whitespace at the beginning of the string,
 /// and then writes the branch itself.
 ///
 /// TODO: explain `WIDE` mode.

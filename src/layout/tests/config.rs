@@ -8,7 +8,7 @@ fn assert_diag<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expected: 
     impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
         type Key = char;
 
-        fn children(&self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
             vtx.children.iter()
         }
 
@@ -30,7 +30,7 @@ fn assert_diag_annot<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expe
     impl<'t> Ramify<&'t Vertex<char>> for AnnotatingRamifier {
         type Key = char;
 
-        fn children(&self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
             vtx.children.iter()
         }
 
