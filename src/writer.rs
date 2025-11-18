@@ -33,13 +33,13 @@ impl<W: io::Write> DiagramWriter<W> {
     }
 
     /// Returns the number of characters written since the last line break.
-    pub fn line_char_count(&self) -> usize {
+    pub(crate) fn line_char_count(&self) -> usize {
         self.line_width
     }
 
     /// Write a [`Branch`].
     #[inline]
-    pub fn write_branch(&mut self, b: Branch) -> io::Result<()> {
+    pub(crate) fn write_branch(&mut self, b: Branch) -> io::Result<()> {
         let f = &mut self.writer;
         let width = match b {
             Branch::Continue => {
@@ -98,14 +98,14 @@ impl<W: io::Write> DiagramWriter<W> {
 
     /// Write a vertex marker.
     #[inline]
-    pub fn write_vertex_marker(&mut self, marker: char) -> io::Result<()> {
+    pub(crate) fn write_vertex_marker(&mut self, marker: char) -> io::Result<()> {
         self.line_width += 1;
         write!(&mut self.writer, "{marker}")
     }
 
     /// Write a newline.
     #[inline]
-    pub fn write_newline(&mut self) -> io::Result<()> {
+    pub(crate) fn write_newline(&mut self) -> io::Result<()> {
         self.line_width = 0;
         writeln!(&mut self.writer)
     }
@@ -114,7 +114,7 @@ impl<W: io::Write> DiagramWriter<W> {
     ///
     /// The caller must guarantee the provided line does not contain any newlines.
     #[inline]
-    pub fn write_annotation_line(
+    pub(crate) fn write_annotation_line(
         &mut self,
         line: impl fmt::Display,
         bound: usize,
