@@ -34,14 +34,11 @@
 #![deny(missing_docs)]
 
 mod layout;
-mod writer;
+pub mod writer;
 
 use std::fmt;
 
-pub use self::{
-    layout::Generator,
-    writer::{Config, Writer},
-};
+pub use self::{layout::Generator, writer::Config};
 
 /// A trait representing heirarchical data structures with efficient iteration of children.
 ///
@@ -149,11 +146,10 @@ pub trait Ramify<V> {
     /// [`margin_below`](Config::margin_below) option of the
     /// [`Config`] struct.
     ///
-    /// The `tree_width` argument is the maximum over the widths of all lines in the tree
-    /// diagram before the next vertex is drawn. This does not include extra spaces requested in
-    /// [`margin_left`](Config::margin_left). For example, the
-    /// implementation can use this to prevent writing very long lines to output if the tree is
-    /// very wide.
+    /// The `offset` argument is the number of characters that will be written before the
+    /// annotation is drawn. This includes any extra spaces requested in
+    /// [`margin_left`](Config::margin_left). This number can be used to prevent writing
+    /// very long lines to output if the tree is very wide.
     ///
     /// # Example
     ///
@@ -169,5 +165,7 @@ pub trait Ramify<V> {
     ///  3  The annotation for vertex 2 is empty.
     /// ```
     #[allow(unused)]
-    fn annotation<B: fmt::Write>(&self, vtx: V, tree_width: usize, buf: B) {}
+    fn annotation<B: fmt::Write>(&self, vtx: V, offset: usize, buf: B) -> fmt::Result {
+        Ok(())
+    }
 }

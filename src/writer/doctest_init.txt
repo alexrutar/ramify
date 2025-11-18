@@ -1,0 +1,45 @@
+# use ramify::{Config, writer::BranchWrite, Generator, Ramify};
+# use ramify::writer::{RoundedCorners, RoundedCornersWide, SharpCorners, SharpCornersWide, DoubledLines};
+#
+# struct Vertex<T> {
+#     data: T,
+#     children: Vec<Vertex<T>>,
+# }
+#
+# impl<T> Vertex<T> {
+#     fn inner(data: T, children: Vec<Vertex<T>>) -> Self {
+#         Self { data, children }
+#     }
+#
+#     fn leaf(data: T) -> Self {
+#         Self {
+#             data,
+#             children: Vec::new(),
+#         }
+#     }
+# }
+# struct Ramifier;
+# impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
+#     type Key = char;
+#     fn children(&self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+#         vtx.children.iter()
+#     }
+#     fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+#         vtx.data
+#     }
+#     fn marker(&self, vtx: &'t Vertex<char>) -> char {
+#         vtx.data
+#     }
+# }
+# let root = {
+#     let v8 = Vertex::leaf('8');
+#     let v7 = Vertex::leaf('7');
+#     let v6 = Vertex::leaf('6');
+#     let v5 = Vertex::leaf('5');
+#     let v4 = Vertex::leaf('4');
+#     let v3 = Vertex::leaf('3');
+#     let v2 = Vertex::inner('2', vec![v6]);
+#     let v1 = Vertex::inner('1', vec![v3]);
+#     Vertex::inner('0', vec![v7, v1, v2, v5, v4, v8])
+# };
+#

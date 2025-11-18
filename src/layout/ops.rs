@@ -6,7 +6,7 @@ use std::{
     ops::{Range, RangeFrom, RangeFull, RangeTo},
 };
 
-use crate::writer::{Branch, Writer};
+use crate::writer::{Branch, BranchWrite, DiagramWriter};
 
 /// A half-open [`usize`] range; essentially, one of `..`, `a..`, `..b`, or `a..b`.
 pub trait HalfOpen {
@@ -84,18 +84,18 @@ pub fn required_width<V>(cols: &[(V, usize)], min_index: usize) -> usize {
 /// Write the marker character.
 ///
 /// Since the marker position cannot move, write blanks before the marker if necessary.
-pub fn marker<W: io::Write>(
-    writer: &mut Writer<W>,
+pub fn marker<W: io::Write, B: BranchWrite>(
+    writer: &mut DiagramWriter<W, B>,
     marker: char,
     offset: usize,
     marker_col: usize,
 ) -> io::Result<usize> {
     if marker_col >= offset {
-        writer.write_branch(Branch::Blank(marker_col - offset))?;
-        writer.write_vertex_marker(marker)?;
+        writer.queue_blank(marker_col - offset);
+        writer.write_marker(marker)?;
         Ok(marker_col + 1)
     } else {
-        writer.write_vertex_marker(marker)?;
+        writer.write_marker(marker)?;
         // propagate the offset
         Ok((marker_col + 1).max(offset + 1))
     }
@@ -103,8 +103,8 @@ pub fn marker<W: io::Write>(
 
 /// Write the marker character and also do computations to adjust the returned offset to try to
 /// make space for the next marker
-pub fn mark_and_prepare<V, W: io::Write>(
-    writer: &mut Writer<W>,
+pub fn mark_and_prepare<V, W: io::Write, B: BranchWrite>(
+    writer: &mut DiagramWriter<W, B>,
     cols: &[(V, usize)],
     marker: char,
     offset: usize,
@@ -115,8 +115,8 @@ pub fn mark_and_prepare<V, W: io::Write>(
 
     let col = cols[min_index].1;
 
-    writer.write_branch(Branch::Blank(col - offset))?;
-    writer.write_vertex_marker(marker)?;
+    writer.queue_blank(col - offset);
+    writer.write_marker(marker)?;
 
     // the number of columns we require to perform the fork later
     let required_fork_space = if l + 1 == r {
@@ -156,8 +156,8 @@ pub fn column_range<V>(cols: &[(V, usize)], idx: usize) -> Range<usize> {
 /// This returns the end index of the range required to satisfy the provided alignment.
 /// If the alignment was satisfied, this is just the last column plus one. When chaining alignments
 /// together, this index should be used as the start bound for the subsequent alignment.
-pub fn align<V, W: io::Write>(
-    writer: &mut Writer<W>,
+pub fn align<V, W: io::Write, B: BranchWrite>(
+    writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     bounds: impl HalfOpen,
 ) -> io::Result<usize> {
@@ -278,8 +278,8 @@ pub fn align<V, W: io::Write>(
 /// ```
 /// this is no longer the case: we cannot fork immediately before vertex `2` because vertex `1` is
 /// still occupying the position, so we need to wait one extra row to fork.
-pub fn fork_align<V, W: io::Write, const FORK: bool>(
-    writer: &mut Writer<W>,
+pub fn fork_align<V, W: io::Write, B: BranchWrite, const FORK: bool>(
+    writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     min_index: usize,
     bounds: impl HalfOpen,
@@ -303,8 +303,10 @@ pub fn fork_align<V, W: io::Write, const FORK: bool>(
     };
 
     offset = match fork_limit {
-        Some(end) => fork_exact::<_, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..end)?,
-        None => fork_exact::<_, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..)?,
+        Some(end) => {
+            fork_exact::<_, _, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..end)?
+        }
+        None => fork_exact::<_, _, _, FORK>(writer, &mut cols[l..r], min_index - l, offset..)?,
     };
 
     match bounds.end() {
@@ -314,8 +316,8 @@ pub fn fork_align<V, W: io::Write, const FORK: bool>(
 }
 
 /// Perform a fork, where the fork corresponds exactly to the provided columns.
-pub fn fork_exact<V, W: io::Write, const FORK: bool>(
-    writer: &mut Writer<W>,
+pub fn fork_exact<V, W: io::Write, B: BranchWrite, const FORK: bool>(
+    writer: &mut DiagramWriter<W, B>,
     cols: &mut [(V, usize)],
     min_index: usize,
     bounds: impl HalfOpen,
@@ -349,7 +351,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                     }
                 } else if min_index == 0 {
                     writer.write_branch(Branch::Continue)?;
-                    writer.write_branch(Branch::Blank(1))?;
+                    writer.queue_blank(1);
                 } else {
                     writer.write_branch(Branch::ShiftRight(0))?;
                     for (_, c) in cols {
@@ -389,10 +391,10 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                         *c -= space_on_left;
                     }
                 } else if space_on_left == 1 {
-                    writer.write_branch(Branch::Blank(1))?;
+                    writer.queue_blank(1);
                     writer.write_branch(Branch::Continue)?;
                 } else {
-                    writer.write_branch(Branch::Blank(1))?;
+                    writer.queue_blank(1);
                     writer.write_branch(Branch::ShiftLeft(space_on_left - 2))?;
                     for (_, c) in cols {
                         *c -= space_on_left - 1;
@@ -441,20 +443,20 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                 }
             } else if space_on_left == 0 {
                 writer.write_branch(Branch::ShiftRight(0))?;
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
 
                 for (_, c) in cols {
                     *c += 1;
                 }
                 offset = cur_col + 3;
             } else if space_on_left == 1 {
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
                 writer.write_branch(Branch::Continue)?;
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
 
                 offset = cur_col + 2;
             } else {
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
                 writer.write_branch(Branch::ShiftLeft(space_on_left - 2))?;
 
                 for (_, c) in cols {
@@ -464,11 +466,11 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
             }
         } else {
             if space_on_left > 0 {
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
             }
             writer.write_branch(Branch::Continue)?;
             if space_on_right > 0 {
-                writer.write_branch(Branch::Blank(1))?;
+                writer.queue_blank(1);
             }
             offset = cur_col + 1 + EXTRA - space_on_left;
         }

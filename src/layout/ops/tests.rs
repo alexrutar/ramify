@@ -1,6 +1,6 @@
 use std::str::from_utf8;
 
-use crate::writer::Writer;
+use crate::writer::{DiagramWriter, RoundedCorners};
 
 fn trs(input: &[usize]) -> Vec<((), usize)> {
     input.iter().map(|e| ((), *e)).collect()
@@ -21,8 +21,8 @@ fn fork_align() {
         let output_mod = trs(output);
 
         let mut target: Vec<u8> = Vec::new();
-        let res = super::fork_align::<_, _, FORK>(
-            &mut Writer::with_default_config(&mut target),
+        let res = super::fork_align::<_, _, _, FORK>(
+            &mut DiagramWriter::<_, RoundedCorners>::new(&mut target),
             &mut input_mod,
             min_index,
             bounds,
@@ -83,7 +83,7 @@ fn fork_align() {
 
     // fork right is at the end, and there is buffer space
     a(&[0, 1, 1, 1], 1, ..3, &[0, 1, 2, 2], "│├╮", 3);
-    b(&[0, 1, 1, 1], 1, ..3, &[0, 1, 1, 1], "││ ", 3);
+    b(&[0, 1, 1, 1], 1, ..3, &[0, 1, 1, 1], "││", 3);
     b(&[0, 1, 1, 1], 3, ..3, &[0, 2, 2, 2], "│╰╮", 3);
 
     // fork middle at end
@@ -94,10 +94,10 @@ fn fork_align() {
     b(&[0, 4, 4, 4, 4], 2, ..5, &[0, 2, 2, 2, 2], "│ ╭─╯", 5);
 
     a(&[0, 2, 2, 2, 2], 2, ..4, &[0, 1, 2, 3, 3], "│╭┼╮", 4);
-    b(&[0, 2, 2, 2, 2], 2, ..4, &[0, 2, 2, 2, 2], "│ │ ", 4);
+    b(&[0, 2, 2, 2, 2], 2, ..4, &[0, 2, 2, 2, 2], "│ │", 4);
 
     a(&[0, 1, 1, 1, 1], 3, ..4, &[0, 1, 1, 2, 3], "│├┬╮", 4);
-    b(&[0, 1, 1, 1, 1], 3, ..4, &[0, 2, 2, 2, 2], "│╰╮ ", 4);
+    b(&[0, 1, 1, 1, 1], 3, ..4, &[0, 2, 2, 2, 2], "│╰╮", 4);
 
     // fork middle, check post-alignment
     a(
@@ -129,8 +129,8 @@ fn fork_align() {
     a(&[0, 2, 2, 2, 2], 2, ..3, &[0, 2, 2, 2, 2], "│ │", 4);
     b(&[0, 2, 2, 2, 2], 2, ..3, &[0, 2, 2, 2, 2], "│ │", 4);
 
-    a(&[0, 1, 1, 1, 1], 3, ..3, &[0, 1, 1, 1, 1], "││ ", 4);
-    b(&[0, 1, 1, 1, 1], 3, ..3, &[0, 1, 1, 1, 1], "││ ", 4);
+    a(&[0, 1, 1, 1, 1], 3, ..3, &[0, 1, 1, 1, 1], "││", 4);
+    b(&[0, 1, 1, 1, 1], 3, ..3, &[0, 1, 1, 1, 1], "││", 4);
 
     a(&[0, 2, 2, 2, 2, 3], 2, ..5, &[0, 2, 2, 2, 2, 4], "│ │╰╮", 5);
     b(&[0, 2, 2, 2, 2, 3], 2, ..5, &[0, 2, 2, 2, 2, 4], "│ │╰╮", 5);
@@ -161,7 +161,7 @@ fn align() {
 
         let mut target: Vec<u8> = Vec::new();
         let res = super::align(
-            &mut Writer::with_default_config(&mut target),
+            &mut DiagramWriter::<_, RoundedCorners>::new(&mut target),
             &mut input_mod,
             bounds,
         )
