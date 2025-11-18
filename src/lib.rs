@@ -29,11 +29,13 @@
 //!   the [`Ramify`] trait for more detail.
 //!
 //! ## Basic examples
-pub mod config;
 mod layout;
 mod writer;
 
-pub use self::{layout::Generator, writer::DiagramWriter};
+pub use self::{
+    layout::Generator,
+    writer::{Config, DiagramWriter},
+};
 
 /// A trait representing heirarchical data structures with efficient iteration of children.
 ///

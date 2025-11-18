@@ -186,7 +186,7 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
         }
 
         // write some padding lines, and also prepare for the next row simultaneously
-        for _ in 0..writer.config.annotation_margin_below {
+        for _ in 0..writer.config.margin_below {
             ops::fork_align::<_, _, true>(
                 writer,
                 &mut self.columns,

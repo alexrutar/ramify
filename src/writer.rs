@@ -1,11 +1,42 @@
 use std::{fmt, io};
 
-use crate::config::Config;
+/// Configuration passed to a [`DiagramWriter`](crate::writer::DiagramWriter) in order to influence
+/// the appearance and layout of the branch diagram and associated annotations.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// The margin between each annotation. The default is `0`.
+    pub margin_below: usize,
+    /// The margin between the annotation and the branch diagram. The default is `1`.
+    pub margin_left: usize,
+    /// Use box drawing characters which look a bit worse but have better font support. The default
+    /// is `false`.
+    pub compatible_box_chars: bool,
+}
 
-/// A wrapper around an `io::Write` implementation that knows
+impl Config {
+    /// Initialize configuration using default values.
+    ///
+    /// This is the same as the [`Default`] implementation.
+    pub const fn new() -> Self {
+        Self {
+            margin_below: 0,
+            margin_left: 1,
+            compatible_box_chars: false,
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A wrapper around an [`io::Write`] implementation which contains configuration relevant for
+/// drawing branch diagrams.
 ///
 /// Note that many small calls to `write!` are made during normal running of this program.
-/// Therefore, it is recommended that the output of your writer is buffered.
+/// It is recommended that the output of the internal writer is buffered.
 pub struct DiagramWriter<W> {
     /// Configuration used to draw the branch diagram.
     pub config: Config,
@@ -51,44 +82,85 @@ impl<W: io::Write> DiagramWriter<W> {
                 spaces
             }
             Branch::ShiftForkLeft(shift, branch) => {
-                write!(
-                    f,
-                    "╭{:┬>branch$}{:─>shift$}╯",
-                    "",
-                    "",
-                    branch = branch,
-                    shift = shift
-                )?;
+                if self.config.compatible_box_chars {
+                    write!(
+                        f,
+                        "┌{:┬>branch$}{:─>shift$}┘",
+                        "",
+                        "",
+                        branch = branch,
+                        shift = shift
+                    )?;
+                } else {
+                    write!(
+                        f,
+                        "╭{:┬>branch$}{:─>shift$}╯",
+                        "",
+                        "",
+                        branch = branch,
+                        shift = shift
+                    )?;
+                }
                 2 + shift + branch
             }
             Branch::ShiftForkRight(shift, branch) => {
-                write!(
-                    f,
-                    "╰{:─>shift$}{:┬>branch$}╮",
-                    "",
-                    "",
-                    branch = branch,
-                    shift = shift
-                )?;
+                if self.config.compatible_box_chars {
+                    write!(
+                        f,
+                        "└{:─>shift$}{:┬>branch$}┐",
+                        "",
+                        "",
+                        branch = branch,
+                        shift = shift
+                    )?;
+                } else {
+                    write!(
+                        f,
+                        "╰{:─>shift$}{:┬>branch$}╮",
+                        "",
+                        "",
+                        branch = branch,
+                        shift = shift
+                    )?;
+                }
                 2 + shift + branch
             }
             Branch::ForkLeft(branch) => {
-                write!(f, "╭{:┬>branch$}┤", "", branch = branch)?;
+                if self.config.compatible_box_chars {
+                    write!(f, "┌{:┬>branch$}┤", "", branch = branch)?;
+                } else {
+                    write!(f, "╭{:┬>branch$}┤", "", branch = branch)?;
+                }
                 2 + branch
             }
             Branch::ForkRight(branch) => {
-                write!(f, "├{:┬>branch$}╮", "", branch = branch)?;
+                if self.config.compatible_box_chars {
+                    write!(f, "├{:┬>branch$}┐", "", branch = branch)?;
+                } else {
+                    write!(f, "├{:┬>branch$}╮", "", branch = branch)?;
+                }
                 2 + branch
             }
             Branch::ForkMiddle(left, right) => {
-                write!(
-                    f,
-                    "╭{:┬>left$}┼{:┬>right$}╮",
-                    "",
-                    "",
-                    left = left,
-                    right = right
-                )?;
+                if self.config.compatible_box_chars {
+                    write!(
+                        f,
+                        "┌{:┬>left$}┼{:┬>right$}┐",
+                        "",
+                        "",
+                        left = left,
+                        right = right
+                    )?;
+                } else {
+                    write!(
+                        f,
+                        "╭{:┬>left$}┼{:┬>right$}╮",
+                        "",
+                        "",
+                        left = left,
+                        right = right
+                    )?;
+                }
                 3 + left + right
             }
         };
@@ -125,7 +197,7 @@ impl<W: io::Write> DiagramWriter<W> {
             "",
             "",
             align = bound.saturating_sub(self.line_width),
-            padding = self.config.annotation_margin_left
+            padding = self.config.margin_left
         )?;
         self.line_width = 0;
         Ok(())

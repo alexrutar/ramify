@@ -31,7 +31,7 @@ fn assert_diag_impl<R: for<'a> Ramify<&'a Vertex<char>>>(
 
     let mut output: Vec<u8> = Vec::new();
     let mut writer = DiagramWriter::with_default_config(&mut output);
-    writer.config.annotation_margin_below = padding;
+    writer.config.margin_below = padding;
     let mut cols = Generator::init(&root, ramifier);
     while cols.write_diagram_row(&mut writer).unwrap() {}
 
