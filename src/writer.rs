@@ -2,15 +2,28 @@ use std::{fmt, io};
 
 use crate::config::Config;
 
+/// A wrapper around an `io::Write` implementation that knows
+///
+/// Note that many small calls to `write!` are made during normal running of this program.
+/// Therefore, it is recommended that the output of your writer is buffered.
 pub struct DiagramWriter<W> {
-    /// Writer configuration.
+    /// Configuration used to draw the branch diagram.
     pub config: Config,
     writer: W,
     line_width: usize,
 }
 
 impl<W: io::Write> DiagramWriter<W> {
-    /// Create a new [`DiagramWriter`] wrapping a writer, using the default configuration.
+    /// Initialize a new diagram writer with the provided configuration and writer.
+    pub fn new(config: Config, writer: W) -> Self {
+        Self {
+            config,
+            writer,
+            line_width: 0,
+        }
+    }
+
+    /// Create a new diagram writer wrapping the provided writer, using default configuration.
     pub fn with_default_config(writer: W) -> Self {
         Self {
             config: Config::new(),

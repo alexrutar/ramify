@@ -341,15 +341,13 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                         // the new minimal element follows the right fork
                         cols[min_index].1 = cur_col + 1;
                     }
+                } else if min_index == 0 {
+                    writer.write_branch(Branch::Continue)?;
+                    writer.write_branch(Branch::Blank(1))?;
                 } else {
-                    if min_index == 0 {
-                        writer.write_branch(Branch::Continue)?;
-                        writer.write_branch(Branch::Blank(1))?;
-                    } else {
-                        writer.write_branch(Branch::ShiftForkRight(0, 0))?;
-                        for (_, c) in cols {
-                            *c += 1;
-                        }
+                    writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                    for (_, c) in cols {
+                        *c += 1;
                     }
                 }
             } else {
@@ -429,30 +427,28 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                 for (_, c) in cols[min_index + 1..].iter_mut() {
                     *c = *c - space_on_left + 2;
                 }
-            } else {
-                if space_on_left == 0 {
-                    writer.write_branch(Branch::ShiftForkRight(0, 0))?;
-                    writer.write_branch(Branch::Blank(1))?;
+            } else if space_on_left == 0 {
+                writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                writer.write_branch(Branch::Blank(1))?;
 
-                    for (_, c) in cols {
-                        *c += 1;
-                    }
-                    offset = cur_col + 3;
-                } else if space_on_left == 1 {
-                    writer.write_branch(Branch::Blank(1))?;
-                    writer.write_branch(Branch::Continue)?;
-                    writer.write_branch(Branch::Blank(1))?;
-
-                    offset = cur_col + 2;
-                } else {
-                    writer.write_branch(Branch::Blank(1))?;
-                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
-
-                    for (_, c) in cols {
-                        *c -= space_on_left - 1;
-                    }
-                    offset = cur_col + 1;
+                for (_, c) in cols {
+                    *c += 1;
                 }
+                offset = cur_col + 3;
+            } else if space_on_left == 1 {
+                writer.write_branch(Branch::Blank(1))?;
+                writer.write_branch(Branch::Continue)?;
+                writer.write_branch(Branch::Blank(1))?;
+
+                offset = cur_col + 2;
+            } else {
+                writer.write_branch(Branch::Blank(1))?;
+                writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
+
+                for (_, c) in cols {
+                    *c -= space_on_left - 1;
+                }
+                offset = cur_col + 1;
             }
         } else {
             if space_on_left > 0 {

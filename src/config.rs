@@ -1,7 +1,18 @@
+//! # Configuration used when creating branch drawings.
+//!
+//! This module contains:
+//!
+//! - The [`Config`] struct, which defines general configuration which to influence the apperance
+//!   and layout of the branch diagram.
+//! - The [`Charset`] struct, which contains the set of characters used to draw the branch diagram
+//!   itself.
+
+/// Configuration passed to a [`DiagramWriter`](crate::writer::DiagramWriter) in order to influence
+/// the appearance and layout of the branch diagram and associated annotations.
 pub struct Config {
-    /// The margin between each annotation.
+    /// The margin between each annotation. The default value is `0`.
     pub annotation_margin_below: usize,
-    /// The margin between the annotation and the branch diagram.
+    /// The margin between the annotation and the branch diagram. The default value is `1`.
     pub annotation_margin_left: usize,
     /// The character set for the edges in the branch diagram.
     pub charset: Charset,
@@ -10,7 +21,7 @@ pub struct Config {
 impl Config {
     /// Initialize configuration using default values.
     ///
-    /// This is the same as the [`Default`] implementation, but as a `const fn`.
+    /// This is the same as the [`Default`] implementation.
     pub const fn new() -> Self {
         Self {
             annotation_margin_below: 0,
@@ -33,7 +44,7 @@ impl Default for Config {
 /// drawing](https://en.wikipedia.org/wiki/Box_Drawing) Unicode block can be used to build
 /// different character sets.
 ///
-/// Most characters are self-explanatory, but there are two notes.
+/// Most characters are self-explanatory, perhaps with two exceptions.
 ///
 /// 1. The [`internal_whitespace`](Self::internal_whitespace) character is used to write whitespace
 ///    which is considered to be part of the branch diagram. For example, it is written when
@@ -47,27 +58,27 @@ impl Default for Config {
 ///    top-down printing. However, it is used for vertical reflections, which are necessary to
 ///    print trees "upside down".
 pub struct Charset {
-    /// The '│' character.
+    /// The `│` character.
     pub vertical: char,
-    /// The '┼' character.
+    /// The `┼` character.
     pub vertical_and_horizontal: char,
-    /// The '┤' character.
+    /// The `┤` character.
     pub vertical_and_left: char,
-    /// The '├' character.
+    /// The `├` character.
     pub vertical_and_right: char,
-    /// The '╮' character.
+    /// The `╮` character.
     pub down_and_left: char,
-    /// The '╭' character.
+    /// The `╭` character.
     pub down_and_right: char,
-    /// The '┬' character.
+    /// The `┬` character.
     pub down_and_horizontal: char,
-    /// The '╯' character.
+    /// The `╯` character.
     pub up_and_left: char,
-    /// The '╰' character.
+    /// The `╰` character.
     pub up_and_right: char,
-    /// The '┴' character.
+    /// The `┴` character.
     pub up_and_horizontal: char,
-    /// The '─' character.
+    /// The `─` character.
     pub horizontal: char,
     /// The ` ` character.
     pub internal_whitespace: char,
