@@ -38,6 +38,62 @@ pub struct Generator<V, R> {
     annotation_buf: String,
 }
 
+enum Few<T> {
+    None,
+    One(T),
+    Two(T, T),
+}
+
+struct AnnotationLines<'a> {
+    lines: std::str::Lines<'a>,
+    peeked: Few<&'a str>,
+}
+
+impl<'a> Iterator for AnnotationLines<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.peeked {
+            Few::None => self.lines.next(),
+            Few::One(first) => {
+                self.peeked = Few::None;
+                Some(first)
+            }
+            Few::Two(first, second) => {
+                self.peeked = Few::One(second);
+                Some(first)
+            }
+        }
+    }
+}
+
+impl<'a> AnnotationLines<'a> {
+    pub fn new(s: &'a str) -> Self {
+        let mut lines = s.lines();
+        let Some(first) = lines.next() else {
+            return Self {
+                lines,
+                peeked: Few::None,
+            };
+        };
+
+        let Some(second) = lines.next() else {
+            return Self {
+                lines,
+                peeked: Few::One(first),
+            };
+        };
+        Self {
+            lines,
+            peeked: Few::Two(first, second),
+        }
+    }
+
+    pub fn is_many(&self) -> bool {
+        matches!(self.peeked, Few::Two(_, _))
+    }
+}
+
 impl<V: Copy, R: Ramify<V>> Generator<V, R> {
     /// Construct a new branch diagram starting at a given vertex of type `V`.
     pub fn init(root: V, ramifier: R) -> Self {
@@ -106,7 +162,8 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
         self.annotation_buf.clear();
         self.ramifier
             .annotation(vtx, diagram_width, &mut self.annotation_buf);
-        let mut lines = self.annotation_buf.lines();
+
+        let mut lines = AnnotationLines::new(&self.annotation_buf);
 
         if next_min_idx < l {
             // the next minimal index lands before the marker
@@ -117,8 +174,11 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
 
             // we use `..col` since want to prepare space to fork, but we cannot exceed the marker
             // position
-            let mut offset =
-                ops::fork_align::<_, _, true>(writer, &mut self.columns[..l], next_min_idx, ..col)?;
+            let mut offset = if lines.is_many() {
+                ops::fork_align::<_, _, false>(writer, &mut self.columns[..l], next_min_idx, ..col)?
+            } else {
+                ops::fork_align::<_, _, true>(writer, &mut self.columns[..l], next_min_idx, ..col)?
+            };
 
             offset = ops::marker(writer, marker_char, offset, col)?;
             ops::align(writer, &mut self.columns[r..], offset..diagram_width)?;
@@ -137,12 +197,21 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
 
             let mut offset = ops::align(writer, &mut self.columns[..l], ..)?;
             offset = ops::marker(writer, marker_char, offset, col)?;
-            ops::fork_align::<_, _, true>(
-                writer,
-                &mut self.columns[r..],
-                next_min_idx - r,
-                offset..diagram_width,
-            )?;
+            if lines.is_many() {
+                ops::fork_align::<_, _, false>(
+                    writer,
+                    &mut self.columns[r..],
+                    next_min_idx - r,
+                    offset..diagram_width,
+                )?;
+            } else {
+                ops::fork_align::<_, _, true>(
+                    writer,
+                    &mut self.columns[r..],
+                    next_min_idx - r,
+                    offset..diagram_width,
+                )?;
+            }
         };
 
         let annotation_alignment = diagram_width.max(writer.line_char_count());

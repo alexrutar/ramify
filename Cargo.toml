@@ -9,5 +9,3 @@ keywords = ["tree", "streaming", "branch", "line art"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/autobib/ramify"
 categories = ["visualization"]
-
-[dependencies]
