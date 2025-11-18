@@ -35,7 +35,6 @@
 //!   search); like a* algorithm
 //! - 'ramify' allowed to take mutable self-reference?
 
-#![deny(unsafe_code)]
 #![deny(missing_docs)]
 
 mod layout;
@@ -55,9 +54,27 @@ pub use self::{layout::Generator, writer::Config};
 /// ```
 /// struct Vtx<T>(T, Vec<Vtx<T>>);
 /// ```
-/// then `V` is probably a reference `&'t Vtx`. If your data is stored in some sort of flat data structure, then `V` is
-/// perhaps an index like `usize`. In any case, it should be lightweight. In particular, [`Generator`] requires
-/// that `V` is [`Copy`].
+/// then `V` is perhaps a reference `&'t Vtx`. If your data is stored in some sort of flat data structure, then `V` is
+/// perhaps an index like `usize`.
+///
+/// ### Method calls when driven by a [`Generator`]
+///
+/// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
+/// when rendering a row and its annotation (a single call to
+/// [`write_next_vertex`](Generator::write_next_vertex)).
+///
+/// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
+/// - [`Ramify::annotation`] is called exactly once called to determine the annotation for the
+///   minimal vertex.
+/// - [`Ramify::children`] is called exactly once to replace the current minimal vertex with its
+///   children
+/// - [`Ramify::get_key`] is called once for every active vertex (including the children of the
+///   previous vertex) to determine the new minimal vertex.
+///
+/// Moreover, the call to [`Ramify::children`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
+/// The other methods only take a reference to the vertex rather than receive the vertex itself.
+///
+/// Otherwise, the relative order between these calls, and moreover the order relative to writes, is unspecified.
 pub trait Ramify<V> {
     /// The key by which the vertices should be sorted.
     ///
@@ -65,6 +82,11 @@ pub trait Ramify<V> {
     type Key: Ord;
 
     /// Iterate over the children of the vertex.
+    ///
+    /// This method is called exactly once for each vertex immediately before writing the
+    /// corresponding branch diagram row.
+    ///
+    /// # Iteration order
     ///
     /// The iteration order is used to determine the horizontal order in which the vertices are
     /// drawn in the tree. This need not correspond to the precise column in which the node is
@@ -100,15 +122,15 @@ pub trait Ramify<V> {
     /// diagram. In particular, this method could be callled many times for a given vertex.
     ///
     /// # Key order
+    ///
     /// The keys are drawn in increasing order.
     /// Use [`Reverse`](std::cmp::Reverse) or a custom [`Ord`] implementation if the vertices in your
     /// tree should be arranged in decreasing order.
     ///
     /// In many standard use-cases, the children of a vertex are greater than the
     /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
-    /// The next vertex which is drawn is simply the minimal vertex out of the active vertices,
-    /// that is those vertices with an immediate parent already drawn to the diagram.
-    fn get_key(&self, vtx: V) -> Self::Key;
+    /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices vertices with an immediate parent already drawn to the diagram).
+    fn get_key(&self, vtx: &V) -> Self::Key;
 
     /// The vertex marker in the branch diagram.
     ///
@@ -123,6 +145,7 @@ pub trait Ramify<V> {
     /// ```
     ///
     /// # Char width
+    ///
     /// This should be a char with width exactly 1 when displayed to the terminal. Other characters,
     /// such as control characters or double-width characters (mainly those described in
     /// [Unicode Annex #11](https://www.unicode.org/reports/tr11/tr11-11.html)) will corrupt the
@@ -135,9 +158,13 @@ pub trait Ramify<V> {
     /// - `✕` (`\u{2715}`)
     /// - `◈` (`\u{25c8}`)
     /// - `◉` (`\u{25c9}`)
-    fn marker(&self, vtx: V) -> char;
+    fn marker(&self, vtx: &V) -> char;
 
     /// An annotation to write alongside a vertex.
+    ///
+    /// This will be called exactly once per vertex, after its children have been computed via a
+    /// call to the
+    /// [`children`](Ramify::children) method.
     ///
     /// The lines of the annotations are written sequentially, with the first line written on the
     /// same line as the vertex with which it is associated.
@@ -175,7 +202,7 @@ pub trait Ramify<V> {
     ///  3  The annotation for vertex 2 is empty.
     /// ```
     #[allow(unused)]
-    fn annotation<B: fmt::Write>(&self, vtx: V, offset: usize, buf: B) -> fmt::Result {
+    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
         Ok(())
     }
 }

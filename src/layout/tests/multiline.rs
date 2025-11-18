@@ -9,15 +9,15 @@ impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
         vtx.children.iter()
     }
 
-    fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+    fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
         vtx.data
     }
 
-    fn marker(&self, vtx: &'t Vertex<char>) -> char {
+    fn marker(&self, vtx: &&'t Vertex<char>) -> char {
         vtx.data
     }
 
-    fn annotation<B: fmt::Write>(&self, _: &'t Vertex<char>, _: usize, mut buf: B) -> fmt::Result {
+    fn annotation<B: fmt::Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
         buf.write_str(">0\n>1\n>2")
     }
 }

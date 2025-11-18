@@ -12,11 +12,11 @@ fn assert_diag<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expected: 
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
             vtx.data
         }
 
-        fn marker(&self, vtx: &'t Vertex<char>) -> char {
+        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
             vtx.data
         }
     }
@@ -34,21 +34,16 @@ fn assert_diag_annot<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expe
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
             vtx.data
         }
 
-        fn marker(&self, vtx: &'t Vertex<char>) -> char {
+        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(
-            &self,
-            _: &'t Vertex<char>,
-            tree_width: usize,
-            mut buf: B,
-        ) -> fmt::Result {
-            write!(buf, "{tree_width}")
+        fn annotation<B: fmt::Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
+            write!(buf, "#")
         }
     }
 
@@ -134,18 +129,18 @@ fn annotation_style() {
         root.clone(),
         config,
         "\
-0     6
+0     #
 ├─┬─┐
-│ 1 ├─┐ 8
-│ │ 2 │ 8
-│ 3 │ │   10
+│ 1 ├─┐ #
+│ │ 2 │ #
+│ 3 │ │   #
 │ ┌─┘ │
 │ │ ┌─┼─┐
-│ │ │ 4 │ 10
-│ │ 5 ┌─┘ 10
-│ 6 ┌─┘ 8
-7 ┌─┘ 6
-  8 4
+│ │ │ 4 │ #
+│ │ 5 ┌─┘ #
+│ 6 ┌─┘ #
+7 ┌─┘ #
+  8 #
 ",
     );
 }
@@ -175,28 +170,28 @@ fn annotation_reported_line_width() {
         root.clone(),
         Config::<RoundedCorners>::new(),
         "\
-0   4
+0   #
 ├┬╮
-│1├╮ 5
-││2│ 5
-│╰╮3  6
+│1├╮ #
+││2│ #
+│╰╮3  #
 │ │╰╮
 │ ╰╮│
 ├┬╮││
-│4││╰─╮ 8
+│4││╰─╮ #
 │││╰─╮│
 ││╰─╮││
 │╰─╮│││
 ├┬╮││││
-│5│││││ 8
-│ 6││││ 8
-7╭─╯│││ 8
- 8╭─╯││ 8
-  9╭─╯│ 8
-   a╭┬┤ 8
-╭───╯b│ 8
-c╭────╯ 8
- d 3
+│5│││││ #
+│ 6││││ #
+7╭─╯│││ #
+ 8╭─╯││ #
+  9╭─╯│ #
+   a╭┬┤ #
+╭───╯b│ #
+c╭────╯ #
+ d #
 ",
     );
 
@@ -205,28 +200,28 @@ c╭────╯ 8
         root.clone(),
         config,
         "\
-0     6
+0     #
 ├─┬─╮
-│ 1 ├─╮ 8
-│ │ 2 │ 8
-│ ╰─╮ 3   10
+│ 1 ├─╮ #
+│ │ 2 │ #
+│ ╰─╮ 3   #
 │   │ ╰─╮
 │   ╰─╮ │
 ├─┬─╮ │ │
-│ 4 │ │ ╰───╮ 14
+│ 4 │ │ ╰───╮ #
 │ │ │ ╰───╮ │
 │ │ ╰───╮ │ │
 │ ╰───╮ │ │ │
 ├─┬─╮ │ │ │ │
-│ 5 │ │ │ │ │ 14
-│   6 │ │ │ │ 14
-7 ╭───╯ │ │ │ 14
-  8 ╭───╯ │ │ 14
-    9 ╭───╯ │ 14
-      a ╭─┬─┤ 14
-╭───────╯ b │ 14
-c ╭─────────╯ 14
-  d 4
+│ 5 │ │ │ │ │ #
+│   6 │ │ │ │ #
+7 ╭───╯ │ │ │ #
+  8 ╭───╯ │ │ #
+    9 ╭───╯ │ #
+      a ╭─┬─┤ #
+╭───────╯ b │ #
+c ╭─────────╯ #
+  d #
 ",
     );
 }

@@ -24,10 +24,10 @@
 #     fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
 #         vtx.children.iter()
 #     }
-#     fn get_key(&self, vtx: &'t Vertex<char>) -> Self::Key {
+#     fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
 #         vtx.data
 #     }
-#     fn marker(&self, vtx: &'t Vertex<char>) -> char {
+#     fn marker(&self, vtx: &&'t Vertex<char>) -> char {
 #         vtx.data
 #     }
 # }

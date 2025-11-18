@@ -92,10 +92,10 @@ pub fn marker<W: io::Write, B: WriteBranch>(
 ) -> io::Result<usize> {
     if marker_col >= offset {
         writer.queue_blank(marker_col - offset);
-        writer.write_marker(marker)?;
+        writer.write_branch(Branch::Marker(marker))?;
         Ok(marker_col + 1)
     } else {
-        writer.write_marker(marker)?;
+        writer.write_branch(Branch::Marker(marker))?;
         // propagate the offset
         Ok((marker_col + 1).max(offset + 1))
     }
@@ -116,7 +116,7 @@ pub fn mark_and_prepare<V, W: io::Write, B: WriteBranch>(
     let col = cols[min_index].1;
 
     writer.queue_blank(col - offset);
-    writer.write_marker(marker)?;
+    writer.write_branch(Branch::Marker(marker))?;
 
     // the number of columns we require to perform the fork later
     let required_fork_space = if l + 1 == r {

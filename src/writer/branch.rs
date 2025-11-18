@@ -4,6 +4,8 @@
 /// this struct is expected.
 #[derive(Debug, Clone, Copy)]
 pub enum Branch {
+    /// TODO
+    Marker(char),
     /// A `╭╯` left shift.
     ///
     /// The field is the number of extra horizontal spacers.
@@ -47,173 +49,36 @@ pub enum Branch {
 }
 
 impl Branch {
-    /// The number of characters that a [`Branch`] occupies in the branch diagram in 'narrow'
-    /// writing mode. The implementation is guaranteed to be exactly as follows:
+    /// The number of characters that a [`Branch`] occupies in the branch diagram with a given
+    /// gutter width. The implementation is guaranteed to be exactly as follows:
     /// ```
     /// use ramify::writer::Branch;
-    /// fn width_narrow(b: &Branch) -> usize {
-    ///     match b {
-    ///         Branch::Continue => 1,
+    /// fn width(b: &Branch, gutter_width: usize) -> usize {
+    ///     let base_width = match b {
+    ///         Branch::Marker(_) | Branch::Continue => 1,
     ///         Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 2 + shift,
     ///         Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 2,
     ///         Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => 3 + shift,
     ///         Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => 4 + shift,
     ///         Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 3,
-    ///     }
+    ///     };
+    ///     base_width + (base_width - 1) * gutter_width
     /// }
-    /// # let b = Branch::ForkDoubleShiftLeft(12);
-    /// # assert_eq!(b.width_narrow(), 15);
-    /// # assert_eq!(width_narrow(&b), 15);
+    /// # let b = Branch::ForkTripleShiftRight(12);
+    /// # assert_eq!(b.width(1), 31);
+    /// # assert_eq!(width(&b, 1), 31);
     /// ```
-    pub fn width_narrow(&self) -> usize {
-        match self {
-            Branch::Continue => 1,
+    pub fn width(&self, gutter_width: usize) -> usize {
+        let base_width = match self {
+            Branch::Continue | Branch::Marker(_) => 1,
             Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 2 + shift,
             Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 2,
             Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => 3 + shift,
             Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => 4 + shift,
             Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 3,
-        }
+        };
+        base_width + (base_width - 1) * gutter_width
     }
-
-    /// The number of characters that a [`Branch`] occupies in the branch diagram in 'wide'
-    /// writing mode. The implementation is exactly as follows:
-    /// ```
-    /// use ramify::writer::Branch;
-    /// fn width_wide(b: &Branch) -> usize {
-    ///     match b {
-    ///         Branch::Continue => 1,
-    ///         Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 3 + 2 * shift,
-    ///         Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 3,
-    ///         Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => {
-    ///             5 + 2 * shift
-    ///         }
-    ///         Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => {
-    ///             7 + 2 * shift
-    ///         }
-    ///         Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 5,
-    ///     }
-    /// }
-    /// # let b = Branch::ForkTripleShiftRight(12);
-    /// # assert_eq!(b.width_wide(), 31);
-    /// # assert_eq!(width_wide(&b), 31);
-    /// ```
-    pub fn width_wide(&self) -> usize {
-        match self {
-            Branch::Continue => 1,
-            Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 3 + 2 * shift,
-            Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 3,
-            Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => {
-                5 + 2 * shift
-            }
-            Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => {
-                7 + 2 * shift
-            }
-            Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 5,
-        }
-    }
-}
-
-/// This is an implementation detail for the [`branch_writer`] macro and should not be imported!
-#[macro_export]
-#[doc(hidden)]
-macro_rules! __branch_writer_impl {
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident;
-
-        chars => {$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal},
-        align => {$wide:expr, $mul:expr, $pos:expr},
-        shift => $shift:expr
-    ) => {
-        $(#[$outer])*
-        $vis struct $name;
-
-        impl $crate::writer::WriteBranch for $name {
-            const WIDE: bool = $wide;
-
-            fn write_branch<F>(f: F, ws: usize, b: $crate::writer::Branch) -> ::std::io::Result<()>
-            where
-                F: for<'a> FnOnce(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
-            {
-                let args = match b {
-                    $crate::writer::Branch::ShiftLeft(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $shift, ">shift$}", $nw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-                    $crate::writer::Branch::Continue => ::std::format_args!(concat!("{:>ws$}", $ns), "", ws = ws),
-                    $crate::writer::Branch::ShiftRight(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $ne, "{:", $shift, ">shift$}", $sw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-
-                    $crate::writer::Branch::ForkDoubleShiftLeft(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $se, $ew, $sew, "{:", $shift, ">shift$}", $nw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-                    $crate::writer::Branch::ForkDoubleLeft => {
-                        ::std::format_args!(concat!("{:>ws$}", $se, $ew, $nsw), "", ws = ws)
-                    }
-                    $crate::writer::Branch::ForkDoubleRight => {
-                        ::std::format_args!(concat!("{:>ws$}", $nse, $ew, $sw), "", ws = ws)
-                    }
-                    $crate::writer::Branch::ForkDoubleShiftRight(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $nw, "{:", $shift, ">shift$}", $sew, $ew, $sw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-
-                    $crate::writer::Branch::ForkTripleShiftLeft(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $se, $ew, $sew, $ew, $sew, "{:", $shift, ">shift$}", $nw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-                    $crate::writer::Branch::ForkTripleLeft => {
-                        ::std::format_args!(concat!("{:>ws$}", $se, $ew, $sew, $ew, $nsw), "", ws = ws)
-                    }
-                    $crate::writer::Branch::ForkTripleMiddle => {
-                        ::std::format_args!(concat!("{:>ws$}", $se, $ew, $nsew, $ew, $sw), "", ws = ws)
-                    }
-                    $crate::writer::Branch::ForkTripleRight => {
-                        ::std::format_args!(concat!("{:>ws$}", $nse, $ew, $sew, $ew, $sw), "", ws = ws)
-                    }
-                    $crate::writer::Branch::ForkTripleShiftRight(shift) => {
-                        ::std::format_args!(
-                            concat!("{:>ws$}", $ne, "{:", $shift, ">shift$}", $sew, $ew, $sew, $ew, $sw),
-                            "",
-                            "",
-                            ws = ws,
-                            shift = $mul * shift + $pos
-                        )
-                    }
-                };
-                f(args)
-            }
-        }
-    };
 }
 
 /// A macro to generate a [`WriteBranch`](crate::writer::WriteBranch) implementation from a
@@ -232,7 +97,7 @@ macro_rules! __branch_writer_impl {
 ///     /// A style which uses rounded corners and additional internal whitespace.
 ///     pub(crate) struct RoundedCornersWide {
 ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
-///         wide: true,
+///         gutter_width: 1,
 ///     }
 /// );
 /// ```
@@ -243,43 +108,141 @@ macro_rules! __branch_writer_impl {
 /// `charset` field should be single characters which have width 1 when printed to the terminal, or
 /// the resulting branch diagram will be corrupted. A good choice is to use [box-drawing
 /// characters](https://en.wikipedia.org/wiki/Box-drawing_characters).
-///
 /// See the [`Branch`] struct for more detail on how the characters are expected to be used.
+///
+/// The `gutter_width` field is the number of extra unused columns placed between the vertical
+/// lines.
 #[macro_export]
-macro_rules! branch_writer {
+macro_rules! branch_writer{
     (
         $(#[$outer:meta])*
         $vis:vis struct $name:ident {
             charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
-            wide: false$(,)?
+            gutter_width: $gutter_width:expr$(,)?
         }
     ) => {
-        $crate::writer::__branch_writer_impl!(
-            $(#[$outer])*
-            $vis struct $name;
+        $(#[$outer])*
+        $vis struct $name;
 
-            chars => {$ns, "", $sw, $se, $nw, $ne, $nsw, $nse, $sew, $nsew},
-            align => {false, 1, 0},
-            shift => $ew
-        );
-    };
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident {
-            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
-            wide: true$(,)?
+        impl $crate::writer::WriteBranch for $name {
+            const GUTTER_WIDTH: usize = $gutter_width;
+
+            fn write_branch<F>(f: F, ws: usize, b: $crate::writer::Branch) -> ::std::io::Result<()>
+            where
+                F: for<'a> FnOnce(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
+            {
+                match b {
+                    $crate::writer::Branch::Marker(m) => {
+                        f(::std::format_args!("{:>ws$}{m}", "", ws = ws))
+                    }
+                    $crate::writer::Branch::ShiftLeft(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $se, "{:", $ew, ">shift$}", $nw),
+                            "",
+                            "",
+                            ws = ws,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+                    $crate::writer::Branch::Continue => f(::std::format_args!(concat!("{:>ws$}", $ns), "", ws = ws)),
+                    $crate::writer::Branch::ShiftRight(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sw),
+                            "",
+                            "",
+                            ws = ws,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+
+                    $crate::writer::Branch::ForkDoubleShiftLeft(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}" , $sew, "{:", $ew, ">shift$}", $nw),
+                            "",
+                            "",
+                            "",
+                            ws = ws,
+                            gutter = $gutter_width,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+                    $crate::writer::Branch::ForkDoubleLeft => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}", $nsw),
+                            "",
+                            "",
+                            gutter = $gutter_width,
+                            ws = ws
+                        ))
+                    }
+                    $crate::writer::Branch::ForkDoubleRight => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $nse, "{:", $ew, ">gutter$}", $sw),
+                            "",
+                            "",
+                            gutter = $gutter_width,
+                            ws = ws
+                        ))
+                    }
+                    $crate::writer::Branch::ForkDoubleShiftRight(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $nw, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutter$}", $sw),
+                            "",
+                            "",
+                            "",
+                            ws = ws,
+                            gutter = $gutter_width,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+
+                    $crate::writer::Branch::ForkTripleShiftLeft(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sew, "{:", $ew, ">shift$}", $nw),
+                            "",
+                            "",
+                            "",
+                            "",
+                            gutterl = $gutter_width,
+                            gutterr= $gutter_width,
+                            ws = ws,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+                    $crate::writer::Branch::ForkTripleLeft => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $nsw),
+                            "",
+                            "",
+                            "",
+                            gutterl = $gutter_width,
+                            gutterr = $gutter_width,
+                            ws = ws
+                        ))
+                    }
+                    $crate::writer::Branch::ForkTripleMiddle => {
+                        f(::std::format_args!(concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $nsew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
+                    }
+                    $crate::writer::Branch::ForkTripleRight => {
+                        f(::std::format_args!(concat!("{:>ws$}", $nse, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
+                    }
+                    $crate::writer::Branch::ForkTripleShiftRight(shift) => {
+                        f(::std::format_args!(
+                            concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw),
+                            "",
+                            "",
+                            "",
+                            "",
+                            ws = ws,
+                            gutterl = $gutter_width,
+                            gutterr = $gutter_width,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+                }
+            }
         }
-    ) => {
-        $crate::writer::__branch_writer_impl!(
-            $(#[$outer])*
-            $vis struct $name;
-
-            chars => {$ns, $ew, $sw, $se, $nw, $ne, $nsw, $nse, $sew, $nsew},
-            align => {true, 2, 1},
-            shift => $ew
-        );
     };
 }
 
-pub use __branch_writer_impl;
 pub use branch_writer;

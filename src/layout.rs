@@ -34,6 +34,8 @@ use crate::{
 /// corrupt the branch diagram.
 pub struct Generator<V, R, B = RoundedCorners> {
     columns: Vec<(V, usize)>,
+    /// None iff columns.is_empty()
+    min_index: Option<usize>,
     ramifier: R,
     config: Config<B>,
     annotation_buf: String,
@@ -45,6 +47,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     pub fn init(root: V, ramifier: R, config: Config<B>) -> Self {
         Self {
             columns: vec![(root, 0)],
+            min_index: Some(0),
             ramifier,
             config,
             annotation_buf: String::new(),
@@ -62,12 +65,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// - [`with_sharp_corners_wide`](Self::with_sharp_corners_wide)
     /// - [`with_doubled_lines`](Self::with_doubled_lines)
     pub fn with_default_config(root: V, ramifier: R) -> Self {
-        Self {
-            columns: vec![(root, 0)],
-            ramifier,
-            config: Config::new(),
-            annotation_buf: String::new(),
-        }
+        Self::init(root, ramifier, Config::new())
     }
 
     /// Get a mutable reference to the configuration in order to change configuration parameters
@@ -77,7 +75,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 }
 
-impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
+impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// Write a row containing a vertex along with its annotation to the provided writer.
     ///
     /// This method returns `Ok(true)` if there are vertices remaining, and otherwise `Ok(false)`.
@@ -98,24 +96,68 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// provided by the standard library are already buffered.
     pub fn write_next_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool> {
         let mut writer = DiagramWriter::<W, B>::new(writer);
-        let Some(min_idx) = self.min_index() else {
+        let Some(min_idx) = self.min_index else {
             return Ok(false);
         };
 
         // perform the substitution first since we will use information
         // about the next minimal element in order to make predictive writes
-        let (vtx, col, l, r) = {
+        let (marker_char, col, l, r) = {
             #[cfg(test)]
             self.debug_cols_header("Replacing min index");
             let original_col_count = self.columns.len();
-            let (vtx, col) = self.columns[min_idx];
 
-            // replace this element with its children in place
-            self.columns.splice(
-                min_idx..min_idx + 1,
-                // also store the column index from which the item originated
-                self.ramifier.children(vtx).zip(repeat(col)),
-            );
+            // use the 'sentinel' pattern
+            let (marker_char, col) = if min_idx + 1 == self.columns.len() {
+                // the minimal index is at the end
+
+                // remove the last element
+                let (vtx, col) = self.columns.pop().unwrap();
+
+                // determine the data associated with the element
+                let marker_char = self.ramifier.marker(&vtx);
+                self.annotation_buf.clear();
+                self.ramifier
+                    .annotation(&vtx, &mut self.annotation_buf)
+                    .expect("Writing to a `String` should not fail.");
+
+                // append the new elements
+                self.columns
+                    .extend(self.ramifier.children(vtx).zip(repeat(col)));
+
+                (marker_char, col)
+            } else {
+                // temporarily swap the minimal element with the last element
+                let (vtx, col) = self.columns.swap_remove(min_idx);
+
+                // determine the data associated with the element
+                let marker_char = self.ramifier.marker(&vtx);
+                self.annotation_buf.clear();
+                self.ramifier
+                    .annotation(&vtx, &mut self.annotation_buf)
+                    .expect("Writing to a `String` should not fail.");
+
+                // splice into the position of the last element, inserting the new children
+                let last = {
+                    let mut iter = self.columns.splice(
+                        min_idx..min_idx + 1,
+                        self.ramifier.children(vtx).zip(repeat(col)),
+                    );
+                    // put the last element back
+                    iter.next().unwrap()
+                };
+                self.columns.push(last);
+
+                (marker_char, col)
+            };
+
+            // update the min index
+            self.min_index = self
+                .columns
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
+                .map(|(a, _)| a);
 
             // compute the number of new elements added by checking how much the length changed.
             let child_count = self.columns.len() + 1 - original_col_count;
@@ -123,28 +165,18 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             #[cfg(test)]
             self.debug_cols();
 
-            (vtx, col, min_idx, min_idx + child_count)
+            (marker_char, col, min_idx, min_idx + child_count)
         };
 
-        let marker_char = self.ramifier.marker(vtx);
-
         // either get the next minimal index, or write the final line and annotation and return
-        let Some(next_min_idx) = self.min_index() else {
+        let Some(next_min_idx) = self.min_index else {
             let diagram_width = ops::marker(&mut writer, marker_char, 0, col)?;
-            let annotation_alignment = if B::WIDE {
-                2 * diagram_width - 1
-            } else {
-                diagram_width
-            };
-
-            self.annotation_buf.clear();
-            self.ramifier
-                .annotation(
-                    vtx,
-                    self.config.margin_left + annotation_alignment,
-                    &mut self.annotation_buf,
-                )
-                .expect("Writing to a `String` should not fail.");
+            // let annotation_alignment = if B::WIDE {
+            //     2 * diagram_width - 1
+            // } else {
+            //     diagram_width
+            // };
+            let annotation_alignment = (B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH;
 
             let mut lines = self.annotation_buf.lines();
 
@@ -241,20 +273,8 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             }
         };
 
-        let annotation_alignment = if B::WIDE {
-            (2 * diagram_width - 1).max(writer.line_char_count())
-        } else {
-            diagram_width.max(writer.line_char_count())
-        };
-
-        self.annotation_buf.clear();
-        self.ramifier
-            .annotation(
-                vtx,
-                self.config.margin_left + annotation_alignment,
-                &mut self.annotation_buf,
-            )
-            .expect("Writing to a `String` should not fail.");
+        let annotation_alignment =
+            ((B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH).max(writer.line_char_count());
 
         let mut lines = self.annotation_buf.lines();
 
@@ -363,15 +383,6 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
         self.columns.is_empty()
     }
 
-    /// Compute the column index containing the minimal key, or `None` if there are no columns.
-    fn min_index(&self) -> Option<usize> {
-        self.columns
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, (e, _))| self.ramifier.get_key(*e))
-            .map(|(a, _)| a)
-    }
-
     /// Returns whether a provided index is a singleton, i.e. the corresponding edge is not shared
     /// by any other vertices.
     fn is_singleton(&self, idx: usize) -> bool {
@@ -391,17 +402,21 @@ impl<V: Copy, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
 
     #[cfg(test)]
     fn debug_cols_impl<D: std::fmt::Display>(&self, header: Option<D>) {
-        if self.columns.is_empty() {
-            println!("Tree is empty");
-        } else {
+        if let Some(min_idx) = self.min_index {
             if let Some(s) = header {
                 println!("{s}:");
             }
             print!(" ->");
-            for (v, col) in &self.columns {
-                print!(" ({} {col})", self.ramifier.marker(*v));
+            for (i, (_, col)) in self.columns.iter().enumerate() {
+                if i == min_idx {
+                    print!(" *{col}");
+                } else {
+                    print!("  {col}");
+                }
             }
             println!();
+        } else {
+            println!("Tree is empty");
         }
     }
 }

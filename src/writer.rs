@@ -57,7 +57,8 @@
 //!   attempt to move a given column to a new location, plus 'forks', and unmoveable markers)
 //! - whitespace management; no trailing whitespace; buffered whitespace (explain how this relates
 //!   to [`WriteBranch`]).
-//! - children having mutable self-reference, but none of the other methods
+//! - children/annotation having mutable self-reference, but none of the other methods; call order
+//!   rules
 ///
 /// ### Internal state
 /// The generator corresponds to the state at the `tip` of a partially written branch diagram. In
@@ -80,7 +81,7 @@
 /// TODO: write more
 mod branch;
 
-pub use self::branch::{__branch_writer_impl, Branch, branch_writer};
+pub use self::branch::{Branch, branch_writer};
 
 use std::{fmt, io, marker::PhantomData};
 
@@ -207,19 +208,16 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 
     #[inline]
     fn resolve_whitespace(&mut self, branch_width: usize) -> usize {
-        if B::WIDE {
-            let extra_ws = if self.line_width == 0 { 0 } else { 1 };
-            let ws = extra_ws + 2 * self.queued_whitespace;
-            self.line_width += branch_width + ws;
-
-            self.queued_whitespace = 0;
-            ws
+        let extra_ws = if self.line_width == 0 {
+            0
         } else {
-            self.line_width += self.queued_whitespace + branch_width;
-            let ws = self.queued_whitespace;
-            self.queued_whitespace = 0;
-            ws
-        }
+            B::GUTTER_WIDTH
+        };
+        let ws = extra_ws + (1 + B::GUTTER_WIDTH) * self.queued_whitespace;
+        self.line_width += branch_width + ws;
+
+        self.queued_whitespace = 0;
+        ws
     }
 
     /// Write a [`Branch`].
@@ -228,11 +226,6 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
         let ws = self.resolve_whitespace(self.branch_width(&b));
 
         B::write_branch(|args| self.writer.write_fmt(args), ws, b)
-    }
-
-    pub(crate) fn write_marker(&mut self, marker: char) -> io::Result<()> {
-        let ws = self.resolve_whitespace(1);
-        write!(&mut self.writer, "{:>ws$}{m}", "", m = marker, ws = ws)
     }
 
     pub(crate) fn queue_blank(&mut self, n: usize) {
@@ -271,11 +264,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     }
 
     fn branch_width(&self, b: &Branch) -> usize {
-        if B::WIDE {
-            b.width_wide()
-        } else {
-            b.width_narrow()
-        }
+        b.width(B::GUTTER_WIDTH)
     }
 }
 
@@ -291,7 +280,8 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// ## Implementing [`WriteBranch`]
 ///
 /// In order to understand how to implement [`WriteBranch`], it is important to know how a
-/// [`Generator`](crate::Generator) writes a branch diagram.
+/// [`Generator`](crate::Generator) writes a branch diagram. We will refer to a [`WriteBranch`]
+/// implementation as a *branch writer*.
 ///
 /// Consider the following incomplete branch diagram:
 /// ```txt
@@ -308,15 +298,18 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// used for the vertices (here, `0123`). It can also happen that a branch diagram has internal whitespace, in
 /// which case those characters can also be part of the diagram.
 ///
-/// The responsiblity of a [`WriteBranch`] implementation is *only* to write the lines in the
-/// branch diagram.
-/// In order to drive the [`WriteBranch`] implementation, the layout algorithm emits
-/// [`Branch`]es, which are symbolic representations of the components used in a diagram.
-/// The [`WriteBranch`] implementation takes the branch and writes the characters to the writer.
+/// The responsiblity of a branch writer is write the individual components of the branch diagram.
+/// However, a branch writer knows nothing about the current state: the state itself is held by
+/// the [`Generator`](crate::Generator) which then requests the relevant text from the branch
+/// writer. These requests take the form of [`Branch`]es, which are symbolic representations of the
+/// components used in the diagram.
 ///
 /// For performance reasons, instead of working directly with a [writer](io::Write), the
 /// implementation is requested to generate a format template which can be immediately passed to a
 /// closure for writing.
+///
+///
+/// ### Basic example
 ///
 /// A prototypical example implementation the following.
 /// ```
@@ -326,7 +319,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// struct MyCustomStyle;
 ///
 /// impl WriteBranch for MyCustomStyle {
-///     const WIDE: bool = false;
+///     const GUTTER_WIDTH: usize = 0;
 ///
 ///     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
 ///     where
@@ -345,14 +338,63 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// We see that the format template does two things simultaneusly: it writes the requested whitespace at the beginning of the string,
 /// and then writes the branch itself.
 ///
-/// TODO: explain `WIDE` mode.
+/// ### The expected width of the branch
 ///
-/// The width of the resulting branch (not including the whitespace prefix) must be exactly equal
-/// to the result returned by [`Branch::width_narrow`] or [`Branch::width_wide`].
+/// Since the branch writer and the [`Generator`](crate::Generator) must be able to write different
+/// parts of the tree together, they must agree on how many characters a given write operation will
+/// occupy.
+///
+/// Width computations are important for many purposes. For example, correct alignment of
+/// annotations requires the [`Generator`](crate::Generator) to keep track of the number of
+/// characters which have been written in the line so far, and also to know that subsequent lines
+/// will not draw so many additional characters that they will overlap with the annotation.
+///
+/// The width parameter is controlled by the associated [`GUTTER_WIDTH`](WriteBranch::GUTTER_WIDTH)
+/// parameter. This is the number of spaces between vertical branches. For example:
+/// ```txt
+/// width 0  width 1  width 2
+///
+/// 0        0        0
+/// ├┬╮      ├─┬─╮    ├──┬──╮
+/// │1│      │ 1 │    │  1  │
+/// 2│╰╮     2 │ ╰─╮  2  │  ╰──╮
+///           ^ ^ ^    ^^ ^^ ^^
+/// ```
+/// The branch writer is only responsible for writing the number of characters internal to the [`Branch`]
+/// that it is writing. The correct number of preceding spaces is passed in the `ws` parameter.
+/// For example, if `GUTTER_WIDTH = 0`, a [`Branch::ForkDoubleShiftLeft`] with field `1` is written
+/// like `╭┬─╯`. However, if `GUTTER_WIDTH = 1`, then it is written like `╭─┬───╯`.
+///
+/// The exact number of expected characters is documented in [`Branch::width`].
+///
+/// ### Example with non-zero gutter width
+/// ```
+/// use std::{fmt, io};
+/// use ramify::writer::{Branch, WriteBranch};
+///
+/// struct MyCustomStyle;
+///
+/// impl WriteBranch for MyCustomStyle {
+///     const GUTTER_WIDTH: usize = 2;
+///
+///     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
+///     where
+///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
+///         match b {
+///             Branch::ForkDoubleShiftLeft(shift) => {
+///                 f(format_args!("{:>ws$}╭──┬{:─>shift$}╯", "", "", ws = ws, shift = 3 * shift + 2))?;
+///             }
+///             _ => todo!(),
+///         }
+///
+///         Ok(())
+///     }
+/// }
+/// ```
 pub trait WriteBranch {
     /// Set this to `true` if the diagram is wide (i.e., has extra internal columns between each row),
     /// and otherwise `false.
-    const WIDE: bool;
+    const GUTTER_WIDTH: usize;
 
     /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
     ///
@@ -387,7 +429,7 @@ branch_writer!(
     /// ```
     pub struct RoundedCorners {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
-        wide: false
+        gutter_width: 0
     }
 );
 
@@ -414,7 +456,7 @@ branch_writer!(
     /// ```
     pub struct SharpCorners {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
-        wide: false
+        gutter_width: 0
     }
 );
 
@@ -441,7 +483,7 @@ branch_writer!(
     /// ```
     pub struct RoundedCornersWide {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
-        wide: true,
+        gutter_width: 1,
     }
 );
 
@@ -468,7 +510,7 @@ branch_writer!(
     /// ```
     pub struct SharpCornersWide {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
-        wide: true
+        gutter_width: 1
     }
 );
 
@@ -495,6 +537,6 @@ branch_writer!(
     /// ```
     pub struct DoubledLines {
         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
-        wide: true
+        gutter_width: 1
     }
 );
