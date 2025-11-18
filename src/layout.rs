@@ -168,12 +168,6 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
         if next_min_idx < l {
             // the next minimal index lands before the marker
 
-            // TODO: when we do multiline / margin, we cannot immediately fork here; instead, we
-            // need this method and also a 'prepare fork' method, and to call the `fork_align`
-            // method only if we know there are no more annotation lines / padding to be written
-
-            // we use `..col` since want to prepare space to fork, but we cannot exceed the marker
-            // position
             let mut offset = if lines.is_many() {
                 ops::fork_align::<_, _, false>(writer, &mut self.columns[..l], next_min_idx, ..col)?
             } else {

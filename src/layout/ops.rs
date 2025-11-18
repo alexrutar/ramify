@@ -115,7 +115,7 @@ pub fn mark_and_prepare<V, W: io::Write>(
 
     let col = cols[min_index].1;
 
-    writer.write_branch(Branch::Blank(col.saturating_sub(offset)))?;
+    writer.write_branch(Branch::Blank(col - offset))?;
     writer.write_vertex_marker(marker)?;
 
     // the number of columns we require to perform the fork later
@@ -169,7 +169,10 @@ pub fn align<V, W: io::Write>(
         if cur_col >= start {
             let diff = cur_col - start;
 
-            writer.write_branch(Branch::shift_left(diff))?;
+            match diff.checked_sub(1) {
+                None => writer.write_branch(Branch::Continue)?,
+                Some(shift) => writer.write_branch(Branch::ShiftLeft(shift))?,
+            }
 
             start = cur_col + 1;
             if diff >= 1 {
@@ -216,7 +219,10 @@ pub fn align<V, W: io::Write>(
             // the new column value
             let new_col = cur_col + allowed_shift;
 
-            writer.write_branch(Branch::shift_right(allowed_shift))?;
+            match allowed_shift.checked_sub(1) {
+                None => writer.write_branch(Branch::Continue)?,
+                Some(shift) => writer.write_branch(Branch::ShiftRight(shift))?,
+            }
             for (_, c) in cols[prev_idx..idx].iter_mut() {
                 *c = new_col;
             }
@@ -330,7 +336,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
 
             if can_fork_right {
                 if FORK {
-                    writer.write_branch(Branch::ForkRight(0))?;
+                    writer.write_branch(Branch::ForkDoubleRight)?;
                     if min_index == 0 {
                         // the new minimal element follows the left fork, so all of the other
                         // elements follow the right fork
@@ -345,7 +351,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                     writer.write_branch(Branch::Continue)?;
                     writer.write_branch(Branch::Blank(1))?;
                 } else {
-                    writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                    writer.write_branch(Branch::ShiftRight(0))?;
                     for (_, c) in cols {
                         *c += 1;
                     }
@@ -359,9 +365,9 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
         } else {
             if FORK {
                 if space_on_left == 1 {
-                    writer.write_branch(Branch::ForkLeft(0))?;
+                    writer.write_branch(Branch::ForkDoubleLeft)?;
                 } else {
-                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 1))?;
+                    writer.write_branch(Branch::ForkDoubleShiftLeft(space_on_left - 2))?;
                 }
 
                 if min_index == 0 {
@@ -378,7 +384,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
             } else {
                 // align with the branch that will write the next vertex
                 if min_index == 0 {
-                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 1, 0))?;
+                    writer.write_branch(Branch::ShiftLeft(space_on_left - 1))?;
                     for (_, c) in cols {
                         *c -= space_on_left;
                     }
@@ -387,7 +393,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                     writer.write_branch(Branch::Continue)?;
                 } else {
                     writer.write_branch(Branch::Blank(1))?;
-                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
+                    writer.write_branch(Branch::ShiftLeft(space_on_left - 2))?;
                     for (_, c) in cols {
                         *c -= space_on_left - 1;
                     }
@@ -412,10 +418,16 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
             if FORK {
                 // write the fork or shift and update the previous column
                 if space_on_left > EXTRA {
-                    writer.write_branch(Branch::ShiftForkLeft(space_on_left - EXTRA - 1, EXTRA))?;
+                    writer.write_branch(Branch::ForkTripleShiftLeft(space_on_left - EXTRA - 1))?;
                     offset = cur_col + 1;
                 } else {
-                    writer.write_branch(Branch::fork(space_on_left, EXTRA - space_on_left))?;
+                    if space_on_left == EXTRA {
+                        writer.write_branch(Branch::ForkTripleLeft)?;
+                    } else if space_on_left == 1 {
+                        writer.write_branch(Branch::ForkTripleMiddle)?;
+                    } else {
+                        writer.write_branch(Branch::ForkTripleRight)?;
+                    }
                     offset = cur_col + EXTRA - space_on_left + 1;
                 };
 
@@ -428,7 +440,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                     *c = *c - space_on_left + 2;
                 }
             } else if space_on_left == 0 {
-                writer.write_branch(Branch::ShiftForkRight(0, 0))?;
+                writer.write_branch(Branch::ShiftRight(0))?;
                 writer.write_branch(Branch::Blank(1))?;
 
                 for (_, c) in cols {
@@ -443,7 +455,7 @@ pub fn fork_exact<V, W: io::Write, const FORK: bool>(
                 offset = cur_col + 2;
             } else {
                 writer.write_branch(Branch::Blank(1))?;
-                writer.write_branch(Branch::ShiftForkLeft(space_on_left - 2, 0))?;
+                writer.write_branch(Branch::ShiftLeft(space_on_left - 2))?;
 
                 for (_, c) in cols {
                     *c -= space_on_left - 1;
