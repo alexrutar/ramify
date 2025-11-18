@@ -4,7 +4,7 @@ mod tests;
 
 use std::{io, iter::repeat, ops::Range};
 
-use crate::{Ramify, writer::DiagramWriter};
+use crate::{Ramify, writer::Writer};
 
 /// A generator holding the state of a branch diagram at a single point in time.
 ///
@@ -66,10 +66,7 @@ impl<V: Copy, R: Ramify<V>> Generator<V, R> {
     ///
     /// Note that many small calls to `write!` are made by this method. It is recommended that your
     /// `io::Write` implementation internal to the [`DiagramWriter`] be buffered.
-    pub fn write_diagram_row<W: io::Write>(
-        &mut self,
-        writer: &mut DiagramWriter<W>,
-    ) -> io::Result<bool> {
+    pub fn write_diagram_row<W: io::Write>(&mut self, writer: &mut Writer<W>) -> io::Result<bool> {
         let Some(min_idx) = self.min_index() else {
             return Ok(false);
         };

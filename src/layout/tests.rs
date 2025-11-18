@@ -1,4 +1,4 @@
-use std::fmt::Write as _;
+use std::fmt::{self, Write};
 
 use super::*;
 
@@ -30,7 +30,7 @@ fn assert_diag_impl<R: for<'a> Ramify<&'a Vertex<char>>>(
     println!("\nExpecting tree:\n{expected}");
 
     let mut output: Vec<u8> = Vec::new();
-    let mut writer = DiagramWriter::with_default_config(&mut output);
+    let mut writer = Writer::with_default_config(&mut output);
     writer.config.margin_below = padding;
     let mut cols = Generator::init(&root, ramifier);
     while cols.write_diagram_row(&mut writer).unwrap() {}
@@ -59,7 +59,7 @@ impl<'t> Ramify<&'t Vertex<char>> for CharTreeRamifier {
         vtx.data
     }
 
-    fn annotation(&self, _: &'t Vertex<char>, _: usize, buf: &mut String) {
+    fn annotation<B: Write>(&self, _: &'t Vertex<char>, _: usize, mut buf: B) {
         let _ = buf.write_char('#');
     }
 }
@@ -399,7 +399,7 @@ impl<'t> Ramify<&'t Vertex<char>> for MultiAnnotationTreeRamifier {
         vtx.data
     }
 
-    fn annotation(&self, _: &'t Vertex<char>, _: usize, buf: &mut String) {
+    fn annotation<B: fmt::Write>(&self, _: &'t Vertex<char>, _: usize, mut buf: B) {
         let _ = buf.write_str(">0\n>1\n>2");
     }
 }

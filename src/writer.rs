@@ -37,14 +37,14 @@ impl Default for Config {
 ///
 /// Note that many small calls to `write!` are made during normal running of this program.
 /// It is recommended that the output of the internal writer is buffered.
-pub struct DiagramWriter<W> {
-    /// Configuration used to draw the branch diagram.
+pub struct Writer<W> {
+    /// Configuration used when drawing the branch diagram.
     pub config: Config,
     writer: W,
     line_width: usize,
 }
 
-impl<W: io::Write> DiagramWriter<W> {
+impl<W: io::Write> Writer<W> {
     /// Initialize a new diagram writer with the provided configuration and writer.
     pub fn new(config: Config, writer: W) -> Self {
         Self {
@@ -261,8 +261,8 @@ impl Branch {
     /// [`Branch::ShiftForkLeft`] with arguments `n` and `0`.
     pub const fn shift_left(n: usize) -> Self {
         match n.checked_sub(1) {
-            None => Branch::Continue,
-            Some(shift) => Branch::ShiftForkLeft(shift, 0),
+            None => Self::Continue,
+            Some(shift) => Self::ShiftForkLeft(shift, 0),
         }
     }
 
@@ -272,8 +272,8 @@ impl Branch {
     /// [`Branch::ShiftForkRight`] with arguments `n` and `0`.
     pub const fn shift_right(n: usize) -> Self {
         match n.checked_sub(1) {
-            None => Branch::Continue,
-            Some(shift) => Branch::ShiftForkRight(shift, 0),
+            None => Self::Continue,
+            Some(shift) => Self::ShiftForkRight(shift, 0),
         }
     }
 
@@ -285,10 +285,10 @@ impl Branch {
     /// - If `l > 0` and `r > 0` this is a [`Branch::ForkMiddle`].
     pub const fn fork(l: usize, r: usize) -> Self {
         match (l.checked_sub(1), r.checked_sub(1)) {
-            (None, None) => Branch::Continue,
-            (Some(extra), None) => Branch::ForkLeft(extra),
-            (None, Some(extra)) => Branch::ForkRight(extra),
-            (Some(extra_l), Some(extra_r)) => Branch::ForkMiddle(extra_l, extra_r),
+            (None, None) => Self::Continue,
+            (Some(extra), None) => Self::ForkLeft(extra),
+            (None, Some(extra)) => Self::ForkRight(extra),
+            (Some(extra_l), Some(extra_r)) => Self::ForkMiddle(extra_l, extra_r),
         }
     }
 }

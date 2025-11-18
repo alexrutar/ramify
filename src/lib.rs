@@ -24,17 +24,23 @@
 //!
 //! - Memory efficient streaming implementation: new vertices are not requested until the
 //!   parent vertex has been rendered.
-//! - Robust support for metadata and attached annotations.
+//! - Robust support for metadata via annotations.
 //! - Generic over ordered heirarchical data with efficient iteration over immediate children. See
 //!   the [`Ramify`] trait for more detail.
 //!
 //! ## Basic examples
+
+#![deny(unsafe_code)]
+#![deny(missing_docs)]
+
 mod layout;
 mod writer;
 
+use std::fmt;
+
 pub use self::{
     layout::Generator,
-    writer::{Config, DiagramWriter},
+    writer::{Config, Writer},
 };
 
 /// A trait representing heirarchical data structures with efficient iteration of children.
@@ -140,12 +146,12 @@ pub trait Ramify<V> {
     /// Like the standard library implementation of [`str::lines`](str#method.lines), the final
     /// trailing newline is optional and ignored if present. If you want padding between your
     /// annotations, it is better use the
-    /// [`annotation_margin_below`](crate::config::Config::annotation_margin_below) option of the
-    /// [`Config`](crate::config::Config) struct.
+    /// [`margin_below`](Config::margin_below) option of the
+    /// [`Config`] struct.
     ///
     /// The `tree_width` argument is the maximum over the widths of all lines in the tree
     /// diagram before the next vertex is drawn. This does not include extra spaces requested in
-    /// [`annotation_margin_left`](crate::config::Config::annotation_margin_left). For example, the
+    /// [`margin_left`](Config::margin_left). For example, the
     /// implementation can use this to prevent writing very long lines to output if the tree is
     /// very wide.
     ///
@@ -163,5 +169,5 @@ pub trait Ramify<V> {
     ///  3  The annotation for vertex 2 is empty.
     /// ```
     #[allow(unused)]
-    fn annotation(&self, vtx: V, tree_width: usize, buf: &mut String) {}
+    fn annotation<B: fmt::Write>(&self, vtx: V, tree_width: usize, buf: B) {}
 }

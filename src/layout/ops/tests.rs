@@ -1,6 +1,6 @@
 use std::str::from_utf8;
 
-use crate::writer::DiagramWriter;
+use crate::writer::Writer;
 
 fn trs(input: &[usize]) -> Vec<((), usize)> {
     input.iter().map(|e| ((), *e)).collect()
@@ -22,7 +22,7 @@ fn fork_align() {
 
         let mut target: Vec<u8> = Vec::new();
         let res = super::fork_align::<_, _, FORK>(
-            &mut DiagramWriter::with_default_config(&mut target),
+            &mut Writer::with_default_config(&mut target),
             &mut input_mod,
             min_index,
             bounds,
@@ -161,7 +161,7 @@ fn align() {
 
         let mut target: Vec<u8> = Vec::new();
         let res = super::align(
-            &mut DiagramWriter::with_default_config(&mut target),
+            &mut Writer::with_default_config(&mut target),
             &mut input_mod,
             bounds,
         )
