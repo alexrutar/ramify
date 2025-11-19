@@ -4,7 +4,7 @@
 /// this struct is expected.
 #[derive(Debug, Clone, Copy)]
 pub enum Branch {
-    /// TODO
+    /// A vertex marker character.
     Marker(char),
     /// A `╭╯` left shift.
     ///

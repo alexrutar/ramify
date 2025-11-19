@@ -35,50 +35,7 @@
 //! ```
 //!
 //! ## Layout algorithm documentation
-//! TODO: not written
-//!
-//! Explain:
-//!
-//! - introduce basic terminology; vertex; children; parent
-//! - idea of 'active' vertices (vertices not yet drawn for which the parent has already been
-//!   drawn)
-//! - idea of the 'state' being intermediate between two rows
-//! - predictive rendering and preparation for following vertices
-//! - delayed branching (if there is padding)
-//! - width limitations (how it relates to slack, and a minimum slack parameter)
-//! - the algorithm used to compute how much width is required
-//! - explain how width interacts with the annotation (we need to make space, so the tree does not
-//!   overlap with the annotation in subsequent rows)
-//! - one step lookahead, but not more
-//! - 2-way vs 3-way forks; child order
-//! - annotation layout, make 'box limit' diagrams showing where the various margins are, etc.
-//! - internal data model, i.e. a sorted vec of columns with vertices
-//! - description of the fundamental components of the algorithm (basically, operations which
-//!   attempt to move a given column to a new location, plus 'forks', and unmoveable markers)
-//! - whitespace management; no trailing whitespace; buffered whitespace (explain how this relates
-//!   to [`WriteBranch`]).
-//! - children/annotation having mutable self-reference, but none of the other methods; call order
-//!   rules
-///
-/// ### Internal state
-/// The generator corresponds to the state at the `tip` of a partially written branch diagram. In
-/// order to reduce the width of the branch diagram, multiple vertices can share the same edges
-/// within the diagram.
-///
-/// For example, consider the following partial branch diagram. The vertex `0` is the root.
-///
-/// We can see that it has children `3`, `1`, and `2`. The vertex `2` also has a child `4`. These
-/// vertices also have an unknown number of children that have not yet been drawn, corresponding to the
-/// outgoing edges at the bottom of the diagram.
-/// ```txt
-/// 0
-/// ├┬╮
-/// │1│
-/// ├╮2
-/// 3│├╮
-/// │││4
-/// ```
-/// TODO: write more
+//! This section will be written some time in the future!
 mod branch;
 
 pub use self::branch::{Branch, branch_writer};
@@ -301,8 +258,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// The responsiblity of a branch writer is write the individual components of the branch diagram.
 /// However, a branch writer knows nothing about the current state: the state itself is held by
 /// the [`Generator`](crate::Generator) which then requests the relevant text from the branch
-/// writer. These requests take the form of [`Branch`]es, which are symbolic representations of the
-/// components used in the diagram.
+/// writer. These requests take the form of [`Branch`]es, which represent the components used in the diagram.
 ///
 /// For performance reasons, instead of working directly with a [writer](io::Write), the
 /// implementation is requested to generate a format template which can be immediately passed to a
@@ -326,12 +282,15 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
 ///         match b {
 ///             Branch::ForkDoubleShiftLeft(shift) => {
-///                 f(format_args!("{:>ws$}╭┬{:─>shift$}╯", "", "", ws = ws, shift = shift))?;
+///                 f(format_args!("{:>ws$}╭┬{:─>shift$}╯",
+///                     "",
+///                     "",
+///                     ws = ws,
+///                     shift = shift
+///                 ))
 ///             }
 ///             _ => todo!(),
 ///         }
-///
-///         Ok(())
 ///     }
 /// }
 /// ```
@@ -368,6 +327,9 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// The exact number of expected characters is documented in [`Branch::width`].
 ///
 /// ### Example with non-zero gutter width
+/// Here, the gutter width is 2. Note that we need to add extra horizontal `─` components in two
+/// places: between the down forks (i.e. `╭┬`), and also between beteen the requested horizontal
+/// spacers in `shift`.
 /// ```
 /// use std::{fmt, io};
 /// use ramify::writer::{Branch, WriteBranch};
@@ -382,18 +344,20 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
 ///         match b {
 ///             Branch::ForkDoubleShiftLeft(shift) => {
-///                 f(format_args!("{:>ws$}╭──┬{:─>shift$}╯", "", "", ws = ws, shift = 3 * shift + 2))?;
+///                 f(format_args!("{:>ws$}╭──┬{:─>shift$}╯",
+///                     "",
+///                     "",
+///                     ws = ws,
+///                     shift = 3 * shift + 2
+///                 ))
 ///             }
 ///             _ => todo!(),
 ///         }
-///
-///         Ok(())
 ///     }
 /// }
 /// ```
 pub trait WriteBranch {
-    /// Set this to `true` if the diagram is wide (i.e., has extra internal columns between each row),
-    /// and otherwise `false.
+    /// The number of extra internal columns.
     const GUTTER_WIDTH: usize;
 
     /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
