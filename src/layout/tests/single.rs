@@ -165,19 +165,8 @@ fn long_skip() {
 
 #[test]
 fn long_inner_path() {
-    let root = {
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::inner('3', vec![v8]);
-        let v2 = Vertex::leaf('2');
-        let v1 = Vertex::inner('1', vec![v7]);
-        Vertex::inner('0', vec![v5, v4, v6, v1, v2, v3])
-    };
     assert_diag(
-        root,
+        ex7(),
         "\
 0   #
 ├┬╮
@@ -198,19 +187,8 @@ fn long_inner_path() {
 
 #[test]
 fn width_jitter() {
-    let root = {
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::inner('3', vec![v8]);
-        let v2 = Vertex::inner('2', vec![v7]);
-        let v1 = Vertex::leaf('1');
-        Vertex::inner('0', vec![v5, v4, v6, v1, v2, v3])
-    };
     assert_diag(
-        root,
+        ex6(),
         "\
 0   #
 ├┬╮
@@ -232,19 +210,8 @@ fn width_jitter() {
 
 #[test]
 fn no_lookahead() {
-    let root = {
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::leaf('3');
-        let v2 = Vertex::inner('2', vec![v3, v5]);
-        let v1 = Vertex::inner('1', vec![v4, v6]);
-        Vertex::inner('0', vec![v2, v1, v7, v8])
-    };
     assert_diag(
-        root,
+        ex5(),
         "\
 0   #
 ├┬╮
@@ -266,26 +233,8 @@ fn no_lookahead() {
 
 #[test]
 fn complex_width_computations() {
-    let root = {
-        let vd = Vertex::leaf('b');
-        let vc = Vertex::leaf('c');
-        let vb = Vertex::leaf('d');
-        let va = Vertex::leaf('a');
-
-        let v9 = Vertex::leaf('9');
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-
-        let v4 = Vertex::inner('4', vec![v8]);
-        let v3 = Vertex::inner('3', vec![vc, vd, vb]);
-        let v2 = Vertex::leaf('2');
-        let v1 = Vertex::inner('1', vec![va]);
-        Vertex::inner('0', vec![v7, v5, v6, v4, v9, v1, v2, v3])
-    };
     assert_diag(
-        root,
+        ex1(),
         "\
 0   #
 ├┬╮
@@ -315,19 +264,8 @@ c╭────╯ #
 
 #[test]
 fn annotation_whitespace_management() {
-    let root = {
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::leaf('3');
-        let v2 = Vertex::inner('2', vec![v6]);
-        let v1 = Vertex::inner('1', vec![v3]);
-        Vertex::inner('0', vec![v7, v1, v2, v5, v4, v8])
-    };
     assert_diag(
-        root,
+        ex3(),
         "\
 0   #
 ├┬╮

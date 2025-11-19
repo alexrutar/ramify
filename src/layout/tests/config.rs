@@ -51,22 +51,10 @@ fn assert_diag_annot<B: WriteBranch>(root: Vertex<char>, config: Config<B>, expe
 }
 
 #[test]
-fn annotation_style() {
-    let root = {
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::leaf('3');
-        let v2 = Vertex::inner('2', vec![v6]);
-        let v1 = Vertex::inner('1', vec![v3]);
-        Vertex::inner('0', vec![v7, v1, v2, v5, v4, v8])
-    };
-
+fn annotation_style_rounded() {
     let config = Config::<RoundedCorners>::new();
     assert_diag(
-        root.clone(),
+        ex2(),
         config,
         "\
 0
@@ -83,10 +71,13 @@ fn annotation_style() {
  8
 ",
     );
+}
 
+#[test]
+fn annotation_style_sharp() {
     let config = Config::<SharpCorners>::new();
     assert_diag(
-        root.clone(),
+        ex2(),
         config,
         "\
 0
@@ -103,10 +94,13 @@ fn annotation_style() {
  8
 ",
     );
+}
 
+#[test]
+fn annotation_style_rounded_wide() {
     let config = Config::<RoundedCornersWide>::new();
     assert_diag(
-        root.clone(),
+        ex2(),
         config,
         "\
 0
@@ -123,10 +117,13 @@ fn annotation_style() {
   8
 ",
     );
+}
 
+#[test]
+fn annotation_style_sharp_wide() {
     let config = Config::<SharpCornersWide>::new();
     assert_diag_annot(
-        root.clone(),
+        ex2(),
         config,
         "\
 0     #
@@ -147,27 +144,8 @@ fn annotation_style() {
 
 #[test]
 fn annotation_reported_line_width() {
-    let root = {
-        let vd = Vertex::leaf('b');
-        let vc = Vertex::leaf('c');
-        let vb = Vertex::leaf('d');
-        let va = Vertex::leaf('a');
-
-        let v9 = Vertex::leaf('9');
-        let v8 = Vertex::leaf('8');
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-
-        let v4 = Vertex::inner('4', vec![v8]);
-        let v3 = Vertex::inner('3', vec![vc, vd, vb]);
-        let v2 = Vertex::leaf('2');
-        let v1 = Vertex::inner('1', vec![va]);
-        Vertex::inner('0', vec![v7, v5, v6, v4, v9, v1, v2, v3])
-    };
-
     assert_diag_annot(
-        root.clone(),
+        ex1(),
         Config::<RoundedCorners>::new(),
         "\
 0   #
@@ -197,7 +175,7 @@ c╭────╯ #
 
     let config = Config::<RoundedCornersWide>::new();
     assert_diag_annot(
-        root.clone(),
+        ex1(),
         config,
         "\
 0     #
