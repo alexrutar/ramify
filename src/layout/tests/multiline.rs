@@ -24,7 +24,7 @@ fn assert_diag(root: Vertex<char>, margin_below: usize, expected: &str) {
     }
 
     let mut config = Config::<crate::writer::RoundedCorners>::new();
-    config.margin_below = margin_below;
+    config.annotation_margin_below = margin_below;
     assert_diag_impl(root, expected, Ramifier, config)
 }
 

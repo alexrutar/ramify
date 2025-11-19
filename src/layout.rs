@@ -180,13 +180,13 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                 writer.write_annotation_line(
                     line,
                     annotation_alignment,
-                    self.config.margin_left,
+                    self.config.annotation_margin_left,
                 )?;
                 for line in lines {
                     writer.write_annotation_line(
                         line,
                         annotation_alignment,
-                        self.config.margin_left,
+                        self.config.annotation_margin_left,
                     )?;
                 }
             } else {
@@ -196,21 +196,10 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             return Ok(false);
         };
 
-        // TODO: work out other strategies
-        //
-        // Option 1: Also take maximum with current width? Are there cases where
-        //           this is better / worse? Call this `avoid_contracting`?
-        // Option 2: Allow some slack parameter u >= 0, which we just add.
-        // Option 3: Allow a 'minimal slack', i.e. a range before which we don't optimize
-        //           for space.
-        //
-        // Handling these cases causes more difficulty with annotations since we need
-        // to predict how much of the slack space we will actually use. Maybe we can just
-        // reserve the extra space no matter what and put the annotation at the end.
         let diagram_width =
             self.compute_diagram_width(ops::required_width(&self.columns, next_min_idx));
 
-        let delay_fork = self.config.margin_below > 0;
+        let delay_fork = self.config.annotation_margin_below > 0;
 
         if next_min_idx < l {
             // the next minimal index lands before the marker
@@ -277,7 +266,11 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
 
         // write the first annotation line or a newline
         if let Some(line) = lines.next() {
-            writer.write_annotation_line(line, annotation_alignment, self.config.margin_left)?;
+            writer.write_annotation_line(
+                line,
+                annotation_alignment,
+                self.config.annotation_margin_left,
+            )?;
         } else {
             writer.write_newline()?;
         }
@@ -297,7 +290,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                 writer.write_annotation_line(
                     prev_line,
                     annotation_alignment,
-                    self.config.margin_left,
+                    self.config.annotation_margin_left,
                 )?;
                 #[cfg(test)]
                 self.debug_cols_header("Wrote annotation line");
@@ -314,14 +307,14 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             writer.write_annotation_line(
                 prev_line,
                 annotation_alignment,
-                self.config.margin_left,
+                self.config.annotation_margin_left,
             )?;
             #[cfg(test)]
             self.debug_cols_header("Wrote final annotation line");
         }
 
         // write some padding lines, and also prepare for the next row simultaneously
-        for _ in 0..self.config.margin_below {
+        for _ in 0..self.config.annotation_margin_below {
             ops::fork_align::<_, _, _, true>(
                 &mut writer,
                 &mut self.columns,
@@ -371,6 +364,9 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     ///
     /// Note that multiple vertices may use the same edge. In particular, this number is
     /// distinct from the number of outgoing edges.
+    ///
+    /// Also note that there might be internal whitespace. In particular, this number is distinct
+    /// from the actual width (in characters) of the diagram.
     pub fn girth(&self) -> usize {
         self.columns.len()
     }
@@ -387,9 +383,12 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
         l + 1 == r
     }
 
-    fn compute_diagram_width(&self, w: usize) -> usize {
+    /// Returns the amount of diagram width from the base diagram width (the amount of space
+    /// required for all of the rows before writing the next vertex) and taking into account the
+    /// configuration.
+    fn compute_diagram_width(&self, base_diagram_width: usize) -> usize {
         let slack: usize = self.config.width_slack.into();
-        (w + slack).max(self.config.min_diagram_width)
+        (base_diagram_width + slack).max(self.config.min_diagram_width)
     }
 
     #[cfg(test)]

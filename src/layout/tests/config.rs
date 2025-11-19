@@ -203,3 +203,67 @@ c ╭─────────╯ #
 ",
     );
 }
+
+#[test]
+fn slack() {
+    let mut config = Config::<RoundedCorners>::new();
+    config.width_slack = true;
+    assert_diag(
+        ex2(),
+        config,
+        "\
+0
+├┬╮
+│1├╮
+││2│
+│3│├┬╮
+│╭╯│4│
+││ 5╭╯
+│6╭─╯
+7╭╯
+ 8
+",
+    );
+}
+
+#[test]
+fn min_diag_width() {
+    let mut config = Config::<RoundedCorners>::new();
+    config.min_diagram_width = 10;
+    assert_diag_annot(
+        ex2(),
+        config,
+        "\
+0          #
+├┬╮
+│1├╮       #
+││2│       #
+│3│├┬╮     #
+│╭╯│4│     #
+││ 5╭╯     #
+│6╭─╯      #
+7╭╯        #
+ 8         #
+",
+    );
+
+    let mut config = Config::<RoundedCorners>::new();
+    config.min_diagram_width = 4;
+    config.width_slack = true;
+    assert_diag_annot(
+        ex2(),
+        config,
+        "\
+0    #
+├┬╮
+│1├╮  #
+││2│  #
+│3│├┬╮ #
+│╭╯│4│ #
+││ 5╭╯ #
+│6╭─╯ #
+7╭╯  #
+ 8   #
+",
+    );
+}
