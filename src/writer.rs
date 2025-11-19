@@ -44,12 +44,24 @@ use std::{fmt, io, marker::PhantomData};
 
 /// Configuration passed to a [`Generator`](crate::Generator) to control the appearance
 /// and layout of the branch diagram and associated annotations.
+///
+/// See the individual fields for a short description of the configuration parameter.
+///
+/// Note that the width numbers are in terms of gutters rather than characters. If the gutter width
+/// is 0, this is the the same as the character width. In general, if the width is `n`, the
+/// resulting number of characters is `(gutter_width + 1) * n`.
 #[derive(Debug, Clone)]
 pub struct Config<B = RoundedCorners> {
     /// The margin between each annotation. The default is `0`.
-    pub(crate) margin_below: usize,
+    pub margin_below: usize,
     /// The margin between the annotation and the branch diagram. The default is `1`.
-    pub(crate) margin_left: usize,
+    pub margin_left: usize,
+    /// Whether or not to allow extra an extra column of width slack, at the cost of occasionally
+    /// pushing the annotation to the right unnecessarily by the gutter width. The default is `false`.
+    pub width_slack: bool,
+    /// The minimum width of the diagram. Annotations will never begin earlier than this.
+    /// Annotation margin is additional on top of this parameter. The default value is `0`.
+    pub min_diagram_width: usize,
     branch_writer: PhantomData<B>,
 }
 
@@ -75,17 +87,9 @@ impl<B> Config<B> {
             margin_below: 0,
             margin_left: 1,
             branch_writer: PhantomData,
+            width_slack: false,
+            min_diagram_width: 0,
         }
-    }
-
-    /// Set the amount of margin below each annotation.
-    pub const fn margin_below(&mut self, margin: usize) {
-        self.margin_below = margin;
-    }
-
-    /// Set the amount of margin to the left of each annotation.
-    pub const fn margin_left(&mut self, margin: usize) {
-        self.margin_left = margin;
     }
 }
 

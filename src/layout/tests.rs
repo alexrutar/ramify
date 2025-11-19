@@ -126,15 +126,3 @@ fn ex6() -> Vertex<char> {
     let v1 = Vertex::leaf('1');
     Vertex::inner('0', vec![v5, v4, v6, v1, v2, v3])
 }
-
-fn ex7() -> Vertex<char> {
-    let v8 = Vertex::leaf('8');
-    let v7 = Vertex::leaf('7');
-    let v6 = Vertex::leaf('6');
-    let v5 = Vertex::leaf('5');
-    let v4 = Vertex::leaf('4');
-    let v3 = Vertex::inner('3', vec![v8]);
-    let v2 = Vertex::leaf('2');
-    let v1 = Vertex::inner('1', vec![v7]);
-    Vertex::inner('0', vec![v5, v4, v6, v1, v2, v3])
-}

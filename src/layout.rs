@@ -170,12 +170,8 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
 
         // either get the next minimal index, or write the final line and annotation and return
         let Some(next_min_idx) = self.min_index else {
-            let diagram_width = ops::marker(&mut writer, marker_char, 0, col)?;
-            // let annotation_alignment = if B::WIDE {
-            //     2 * diagram_width - 1
-            // } else {
-            //     diagram_width
-            // };
+            let offset = ops::marker(&mut writer, marker_char, 0, col)?;
+            let diagram_width = self.compute_diagram_width(offset);
             let annotation_alignment = (B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH;
 
             let mut lines = self.annotation_buf.lines();
@@ -211,7 +207,8 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
         // Handling these cases causes more difficulty with annotations since we need
         // to predict how much of the slack space we will actually use. Maybe we can just
         // reserve the extra space no matter what and put the annotation at the end.
-        let diagram_width = ops::required_width(&self.columns, next_min_idx);
+        let diagram_width =
+            self.compute_diagram_width(ops::required_width(&self.columns, next_min_idx));
 
         let delay_fork = self.config.margin_below > 0;
 
@@ -388,6 +385,11 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     fn is_singleton(&self, idx: usize) -> bool {
         let Range { start: l, end: r } = ops::column_range(&self.columns, idx);
         l + 1 == r
+    }
+
+    fn compute_diagram_width(&self, w: usize) -> usize {
+        let slack: usize = self.config.width_slack.into();
+        (w + slack).max(self.config.min_diagram_width)
     }
 
     #[cfg(test)]

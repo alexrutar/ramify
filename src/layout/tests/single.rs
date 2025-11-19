@@ -166,7 +166,7 @@ fn long_skip() {
 #[test]
 fn long_inner_path() {
     assert_diag(
-        ex7(),
+        ex4(),
         "\
 0   #
 ├┬╮

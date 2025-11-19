@@ -1,28 +1,28 @@
 use super::*;
 
-struct Ramifier;
-
-impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
-    type Key = char;
-
-    fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
-        vtx.children.iter()
-    }
-
-    fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
-        vtx.data
-    }
-
-    fn marker(&self, vtx: &&'t Vertex<char>) -> char {
-        vtx.data
-    }
-
-    fn annotation<B: fmt::Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
-        buf.write_str(">0\n>1\n>2")
-    }
-}
-
 fn assert_diag(root: Vertex<char>, margin_below: usize, expected: &str) {
+    struct Ramifier;
+
+    impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
+        type Key = char;
+
+        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+            vtx.children.iter()
+        }
+
+        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
+            vtx.data
+        }
+
+        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
+            vtx.data
+        }
+
+        fn annotation<B: fmt::Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
+            buf.write_str(">0\n>1\n>2")
+        }
+    }
+
     let mut config = Config::<crate::writer::RoundedCorners>::new();
     config.margin_below = margin_below;
     assert_diag_impl(root, expected, Ramifier, config)
@@ -274,4 +274,54 @@ fn small_multi() {
         };
         assert_diag(root, 1, diag);
     }
+}
+
+#[test]
+fn final_annotation_alignment() {
+    struct Ramifier;
+
+    impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
+        type Key = char;
+
+        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+            vtx.children.iter()
+        }
+
+        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
+            vtx.data
+        }
+
+        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
+            vtx.data
+        }
+
+        fn annotation<B: fmt::Write>(&self, vtx: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
+            if vtx.data == '8' {
+                buf.write_str(">0\n>1\n>2")?;
+            }
+            Ok(())
+        }
+    }
+    assert_diag_impl(
+        ex4(),
+        "\
+0
+├┬╮
+│1├╮
+││2│
+│╰╮3
+│ │╰╮
+│ ╰╮│
+├┬╮││
+│4│││
+5╭╯││
+ 6╭╯│
+  7╭╯
+   8 >0
+     >1
+     >2
+",
+        Ramifier,
+        Config::<RoundedCorners>::new(),
+    );
 }
