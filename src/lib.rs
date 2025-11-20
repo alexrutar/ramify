@@ -38,7 +38,10 @@ pub mod writer;
 
 use std::fmt;
 
-pub use self::{layout::Generator, writer::Config};
+pub use self::{
+    layout::{Generator, WriteVertexError},
+    writer::Config,
+};
 
 /// A trait representing hierarchical data structures with efficient iteration of children.
 ///
@@ -208,11 +211,17 @@ pub trait TryRamify<V> {
     /// The key by which the vertices should be sorted.
     type Key: Ord;
 
-    /// Iterate over the children of the vertex, or fail to do so.
+    /// Try to iterate over the children of the vertex.
     ///
     /// If a vertex is not ready to be iterated, a replacement must be returned in the `Err(_)`
-    /// variant. This new vertex will be compared with the other active vertices to determine the
-    /// new minimal vertex in the next write attempt.
+    /// variant.
+    ///
+    /// 1. If the same vertex is returned, this operation is idempotent. In other words, failing to
+    ///    write a vertex any number of times, followed by a success, is identical to succeeding on
+    ///    the first try.
+    /// 2. If a different vertex is returned, the new minimal index is used instead. The next
+    ///    vertex will not be written, but some writes may occur in order to prepare writing the
+    ///    new vertex.
     ///
     /// Since the vertex returned on an error might change, the marker and annotation associated
     /// with the original vertex will be discarded and re-computed in the next attempt.

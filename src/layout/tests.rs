@@ -1,5 +1,6 @@
 mod branch_macro;
 mod config;
+mod fallible;
 mod multiline;
 mod single;
 

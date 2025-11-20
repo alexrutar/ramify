@@ -34,11 +34,14 @@ mod key {
     }
 }
 
-/// A distribution to increase the number of children; expected 1.4
-static CHILD_COUNTS_EXPAND: [usize; 5] = [0, 1, 1, 2, 3];
+/// A distribution to increase the number of children; expected 1.8
+static CHILD_COUNTS_EXPAND: [usize; 5] = [1, 1, 2, 2, 3];
 
 /// A distribution to decrease the number of children; expected 0.75
 static CHILD_COUNTS_CONTRACT: [usize; 4] = [0, 0, 1, 2];
+
+/// A width target which loosely controls how wide the tree will be.
+static WIDTH_TARGET: usize = 5;
 
 /// A tree which randomly generates new children.
 ///
@@ -48,6 +51,8 @@ pub struct RandomCascade {
     rng: ThreadRng,
     active: usize,
     limit: usize,
+    /// Set to `true` to show the weight associated with each vertex as an annotation
+    show_weight: bool,
 }
 
 impl Ramify<f64> for RandomCascade {
@@ -63,7 +68,7 @@ impl Ramify<f64> for RandomCascade {
         // this ensures that the tree never becomes too small or too large, until
         // we hit the limit at which point the tree terminates relatively quickly
         self.limit = self.limit.saturating_sub(1);
-        let num_children = if self.active <= 5 && self.limit > 0 {
+        let num_children = if self.active <= WIDTH_TARGET && self.limit > 0 {
             *CHILD_COUNTS_EXPAND.choose(&mut self.rng).unwrap()
         } else {
             *CHILD_COUNTS_CONTRACT.choose(&mut self.rng).unwrap()
@@ -95,6 +100,14 @@ impl Ramify<f64> for RandomCascade {
     fn marker(&self, _: &f64) -> char {
         '◊'
     }
+
+    fn annotation<B: std::fmt::Write>(&self, vtx: &f64, mut buf: B) -> std::fmt::Result {
+        if self.show_weight {
+            write!(buf, "{vtx}")
+        } else {
+            Ok(())
+        }
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -103,7 +116,8 @@ fn main() -> std::io::Result<()> {
         RandomCascade {
             rng: rand::rng(),
             active: 1,
-            limit: 50,
+            limit: 50,          // increase to make the tree larger (on average)
+            show_weight: false, // change to `true` to see the vertex weights
         },
     );
     // modify these lines to try out some of the configuration options

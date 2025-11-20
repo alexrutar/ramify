@@ -46,6 +46,7 @@ use crate::{
 ///
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
 /// buffer is re-used between calls to [`write_next_vertex`](Self::write_next_vertex).
+#[derive(Debug)]
 pub struct Generator<V, R, B = RoundedCorners> {
     columns: Vec<(V, usize)>,
     min_index: Option<usize>, // None iff columns.is_empty()
@@ -89,6 +90,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 }
 
 /// An error which might occur when calling [`Generator::try_write_next_vertex`].
+#[derive(Debug)]
 pub enum WriteVertexError {
     /// An IO error was raised by the writer.
     IO(io::Error),
@@ -132,11 +134,12 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         })
     }
 
-    /// Attempt to write the next vertex, unless the call to [`TryRamify::try_children`] fails.
+    /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_children`]
+    /// results in an error.
     ///
     /// If the call fails and the replacement vertex is different, this could still result in some
     /// rows written in order to prepare the new index to be written immediately if the next call
-    /// succeeds. If the original vertex is returned it is guaranteed that no writes will be made.
+    /// succeeds. If the original vertex is returned on error it is guaranteed that no writes will be made.
     pub fn try_write_next_vertex<W: io::Write>(
         &mut self,
         writer: W,
@@ -164,13 +167,8 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                 let (vtx, col) = self.columns.pop().unwrap();
 
                 // determine the data associated with the element
-                let marker_char = self.ramifier.marker(&vtx);
-                self.annotation_buf.clear();
-                self.ramifier
-                    .annotation(&vtx, &mut self.annotation_buf)
-                    .expect("Writing to a `String` should not fail.");
-
-                let maybe_children = self.ramifier.try_children(vtx);
+                let (marker_char, maybe_children) =
+                    Self::get_vtx_data(&mut self.ramifier, &mut self.annotation_buf, vtx);
 
                 // FIXME: annoying workaround to deal with borrow checker
                 let children = if maybe_children.is_err() {
@@ -178,32 +176,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                     // put the column back, but with the replacement element
                     self.columns.push((replacement, col));
 
-                    // recompute the min index
-                    let new_min_idx = self
-                        .columns
-                        .iter()
-                        .enumerate()
-                        .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
-                        .map(|(a, _)| a)
-                        .unwrap();
-
-                    self.min_index = Some(new_min_idx);
-
-                    let diagram_width =
-                        self.compute_diagram_width(ops::required_width(&self.columns, new_min_idx));
-
-                    while !self.is_singleton(new_min_idx) {
-                        ops::fork_align::<_, _, _, true>(
-                            &mut writer,
-                            &mut self.columns,
-                            new_min_idx,
-                            ..diagram_width,
-                        )?;
-                        writer.write_newline()?;
-                        #[cfg(test)]
-                        self.debug_cols_header("Wrote non-marker line");
-                    }
-                    return Err(WriteVertexError::TryChildrenFailed);
+                    return Err(self.handle_no_children(&mut writer));
                 } else {
                     unsafe { maybe_children.unwrap_unchecked() }
                 };
@@ -217,13 +190,9 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                 let (vtx, col) = self.columns.swap_remove(min_idx);
 
                 // determine the data associated with the element
-                let marker_char = self.ramifier.marker(&vtx);
-                self.annotation_buf.clear();
-                self.ramifier
-                    .annotation(&vtx, &mut self.annotation_buf)
-                    .expect("Writing to a `String` should not fail.");
+                let (marker_char, maybe_children) =
+                    Self::get_vtx_data(&mut self.ramifier, &mut self.annotation_buf, vtx);
 
-                let maybe_children = self.ramifier.try_children(vtx);
                 // FIXME: annoying workaround to deal with borrow checker
                 let children = if maybe_children.is_err() {
                     let replacement = unsafe { maybe_children.unwrap_err_unchecked() };
@@ -232,32 +201,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                     self.columns.push((replacement, col));
                     self.columns.swap(last_idx, min_idx);
 
-                    // recompute the min index
-                    let new_min_idx = self
-                        .columns
-                        .iter()
-                        .enumerate()
-                        .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
-                        .map(|(a, _)| a)
-                        .unwrap();
-
-                    self.min_index = Some(new_min_idx);
-
-                    // prepare to write the vertex next iteration
-                    let diagram_width =
-                        self.compute_diagram_width(ops::required_width(&self.columns, new_min_idx));
-                    while !self.is_singleton(new_min_idx) {
-                        ops::fork_align::<_, _, _, true>(
-                            &mut writer,
-                            &mut self.columns,
-                            new_min_idx,
-                            ..diagram_width,
-                        )?;
-                        writer.write_newline()?;
-                        #[cfg(test)]
-                        self.debug_cols_header("Wrote non-marker line");
-                    }
-                    return Err(WriteVertexError::TryChildrenFailed);
+                    return Err(self.handle_no_children(&mut writer));
                 } else {
                     unsafe { maybe_children.unwrap_unchecked() }
                 };
@@ -320,8 +264,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
             return Ok(false);
         };
 
-        let diagram_width =
-            self.compute_diagram_width(ops::required_width(&self.columns, next_min_idx));
+        let diagram_width = self.compute_diagram_width_no_base(next_min_idx);
 
         let delay_fork = self.config.row_padding > 0;
 
@@ -451,33 +394,70 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
         // write some padding lines, and also prepare for the next row simultaneously
         for _ in 0..self.config.row_padding {
-            ops::fork_align::<_, _, _, true>(
-                &mut writer,
-                &mut self.columns,
-                next_min_idx,
-                ..diagram_width,
-            )?;
-            writer.write_newline()?;
-            #[cfg(test)]
-            self.debug_cols_header("Wrote padding line");
+            self.try_make_singleton(next_min_idx, &mut writer, diagram_width)?;
         }
 
         // finally, prepare for the next row by repeatedly calling
         // `fork_align` until the index is a singleton, writing enough rows
         // to get the desired padding
-        while !self.is_singleton(next_min_idx) {
-            ops::fork_align::<_, _, _, true>(
-                &mut writer,
-                &mut self.columns,
-                next_min_idx,
-                ..diagram_width,
-            )?;
-            writer.write_newline()?;
-            #[cfg(test)]
-            self.debug_cols_header("Wrote non-marker line");
-        }
+        self.make_singleton(next_min_idx, &mut writer, diagram_width)?;
 
         Ok(true)
+    }
+
+    fn compute_min_idx(&self) -> Option<usize>
+    where
+        R: TryRamify<V>,
+    {
+        self.columns
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
+            .map(|(a, _)| a)
+    }
+
+    fn get_vtx_data(
+        ramifier: &mut R,
+        buf: &mut String,
+        vtx: V,
+    ) -> (char, Result<impl IntoIterator<Item = V>, V>)
+    where
+        R: TryRamify<V>,
+    {
+        let marker_char = ramifier.marker(&vtx);
+        buf.clear();
+        ramifier
+            .annotation(&vtx, buf)
+            .expect("Writing to a `String` should not fail.");
+        (marker_char, ramifier.try_children(vtx))
+    }
+
+    /// Write a row which tries to prepare for the next vertex.
+    fn try_make_singleton<W: io::Write>(
+        &mut self,
+        idx: usize,
+        writer: &mut DiagramWriter<W, B>,
+        diagram_width: usize,
+    ) -> io::Result<()> {
+        ops::fork_align::<_, _, _, true>(writer, &mut self.columns, idx, ..diagram_width)?;
+        writer.write_newline()?;
+        #[cfg(test)]
+        self.debug_cols_header("Wrote non-marker line");
+        Ok(())
+    }
+
+    /// Given an index, repeatedly call `ops::fork_align` until the corresponding index is a singleton
+    /// column.
+    fn make_singleton<W: io::Write>(
+        &mut self,
+        idx: usize,
+        writer: &mut DiagramWriter<W, B>,
+        diagram_width: usize,
+    ) -> io::Result<()> {
+        while !self.is_singleton(idx) {
+            self.try_make_singleton(idx, writer, diagram_width)?;
+        }
+        Ok(())
     }
 
     /// The index of the final `open` edge, or `None` if there are no edges.
@@ -520,12 +500,36 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         l + 1 == r
     }
 
+    fn handle_no_children<W: io::Write>(
+        &mut self,
+        writer: &mut DiagramWriter<W, B>,
+    ) -> WriteVertexError
+    where
+        R: TryRamify<V>,
+    {
+        // recompute the min index
+        let new_min_idx = self.compute_min_idx().unwrap();
+
+        self.min_index = Some(new_min_idx);
+
+        // prepare to write the vertex next iteration
+        let diagram_width = self.compute_diagram_width_no_base(new_min_idx);
+        if let Err(e) = self.make_singleton(new_min_idx, writer, diagram_width) {
+            return e.into();
+        }
+        WriteVertexError::TryChildrenFailed
+    }
+
     /// Returns the amount of diagram width from the base diagram width (the amount of space
     /// required for all of the rows before writing the next vertex) and taking into account the
     /// configuration.
     fn compute_diagram_width(&self, base_diagram_width: usize) -> usize {
         let slack: usize = self.config.width_slack.into();
         (base_diagram_width + slack).max(self.config.min_diagram_width)
+    }
+
+    fn compute_diagram_width_no_base(&self, min_idx: usize) -> usize {
+        self.compute_diagram_width(ops::required_width(&self.columns, min_idx))
     }
 
     #[cfg(test)]
