@@ -21,7 +21,7 @@
 # struct Ramifier;
 # impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
 #     type Key = char;
-#     fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+#     fn children(&mut self, vtx: &'t Vertex<char>) -> impl IntoIterator<Item = &'t Vertex<char>> {
 #         vtx.children.iter()
 #     }
 #     fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {

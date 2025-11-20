@@ -89,16 +89,17 @@ pub fn marker<W: io::Write, B: WriteBranch>(
     marker: char,
     offset: usize,
     marker_col: usize,
-) -> io::Result<usize> {
-    if marker_col >= offset {
+) -> io::Result<(usize, usize)> {
+    let next_offset = if marker_col >= offset {
         writer.queue_blank(marker_col - offset);
         writer.write_branch(Branch::Marker(marker))?;
-        Ok(marker_col + 1)
+        marker_col + 1
     } else {
         writer.write_branch(Branch::Marker(marker))?;
         // propagate the offset
-        Ok((marker_col + 1).max(offset + 1))
-    }
+        offset + 1
+    };
+    Ok((marker_col + 1, next_offset))
 }
 
 /// Write the marker character and also do computations to adjust the returned offset to try to
@@ -109,7 +110,7 @@ pub fn mark_and_prepare<V, W: io::Write, B: WriteBranch>(
     marker: char,
     offset: usize,
     min_index: usize,
-) -> io::Result<usize> {
+) -> io::Result<(usize, usize)> {
     debug_assert!(min_index < cols.len());
     let Range { start: l, end: r } = column_range(cols, min_index);
 
@@ -126,7 +127,9 @@ pub fn mark_and_prepare<V, W: io::Write, B: WriteBranch>(
     } else {
         3
     };
-    Ok((col + 1).max(offset + required_fork_space))
+
+    let next_offset = (col + 1).max(offset + required_fork_space);
+    Ok((col + 1, next_offset))
 }
 
 /// Given a set of columns and a minimal index valid for the set of columns,

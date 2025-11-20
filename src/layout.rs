@@ -5,22 +5,21 @@ mod tests;
 use std::{io, iter::repeat, ops::Range};
 
 use crate::{
-    Config, Ramify,
+    Config, Ramify, TryRamify,
     writer::{
         DiagramWriter, DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners,
         SharpCornersWide, WriteBranch,
     },
 };
 
-/// A generator holding the state of a branch diagram at a single point in time.
+/// A generator which incrementally writes the branch diagram to a writer.
 ///
-/// Initialize this struct with the [`init`](Self::init) method. After initializing, the branch
+/// Once you have a [`Ramify`] impementation, initialize this struct with the [`init`](Self::init) method. After initializing, the branch
 /// diagram can be incrementally written to a [writer](io::Write) using the
 /// [`write_next_vertex`](Self::write_next_vertex) method.
 ///
-/// The documentation here is mostly relevant for using the [`Generator`]. The layout documentation
-/// and an explanation of the internal state can be found in the [`writer`
-/// module](crate::writer#layout-algorithm-documentation).
+/// The documentation here is mostly relevant for using the [`Generator`]. The layout algorithm
+/// is documented in the [`writer` module](crate::writer#layout-algorithm-documentation).
 ///
 /// ## Compile-time and dynamic configuration
 /// This struct can be configured by passing an appropriate [`Config`] struct. The configuration
@@ -32,10 +31,24 @@ use crate::{
 /// [`write_next_vertex`](Self::write_next_vertex)) by using the [`config_mut`](Self::config_mut)
 /// method. Any such modifications of the configuration are guaranteed to not
 /// corrupt the branch diagram.
+///
+/// ## Runtime and memory complexity
+///
+/// The branch diagram generator holds the minimal possible state required to generate the diagram.
+/// This state is essentially list of column indices corresponding to the *active vertices*: the vertices not yet drawn to the diagram, but
+/// for which a parent has already been drawn to the diagram.
+/// More precisely, the memory usage is `(4 + size_of<V>) * num_active_vertices` plus a constant
+/// if you do not write annotations.
+///
+/// Writing a branch diagram row only requires making a single pass over the list of vertices.
+/// Therefore the runtime to write a single branch diagram row is `O(num_active_vertices)`,
+/// assuming the various methods in [`Ramify`] take constant time.
+///
+/// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
+/// buffer is re-used between calls to [`write_next_vertex`](Self::write_next_vertex).
 pub struct Generator<V, R, B = RoundedCorners> {
     columns: Vec<(V, usize)>,
-    /// None iff columns.is_empty()
-    min_index: Option<usize>,
+    min_index: Option<usize>, // None iff columns.is_empty()
     ramifier: R,
     config: Config<B>,
     annotation_buf: String,
@@ -75,7 +88,21 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 }
 
-impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
+/// An error which might occur when calling [`Generator::try_write_next_vertex`].
+pub enum WriteVertexError {
+    /// An IO error was raised by the writer.
+    IO(io::Error),
+    /// The [`TryRamify`] implementation failed to determine the children for the active vertex.
+    TryChildrenFailed,
+}
+
+impl From<io::Error> for WriteVertexError {
+    fn from(err: io::Error) -> Self {
+        Self::IO(err)
+    }
+}
+
+impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Write a row containing a vertex along with its annotation to the provided writer.
     ///
     /// This method returns `Ok(true)` if there are vertices remaining, and otherwise `Ok(false)`.
@@ -90,11 +117,33 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     ///
     /// # Buffered writes
     ///
-    /// The implementation tries to minimize the number of calls to `write!` made by this method,
+    /// The implementation tries to minimize the number of [`write`](io::Write::write) made by this method,
     /// but the number of calls is still large. It is recommended that the provided writer is
     /// buffered, for example using an [`io::BufWriter`] or an [`io::LineWriter`]. Many writers
     /// provided by the standard library are already buffered.
-    pub fn write_next_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool> {
+    pub fn write_next_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool>
+    where
+        R: Ramify<V>,
+    {
+        self.try_write_next_vertex(writer).map_err(|e| match e {
+            WriteVertexError::IO(error) => error,
+            // the implementation of TryRamify if `R` is `Ramify` always succeeds
+            WriteVertexError::TryChildrenFailed => unreachable!(),
+        })
+    }
+
+    /// Attempt to write the next vertex, unless the call to [`TryRamify::try_children`] fails.
+    ///
+    /// If the call fails and the replacement vertex is different, this could still result in some
+    /// rows written in order to prepare the new index to be written immediately if the next call
+    /// succeeds. If the original vertex is returned it is guaranteed that no writes will be made.
+    pub fn try_write_next_vertex<W: io::Write>(
+        &mut self,
+        writer: W,
+    ) -> Result<bool, WriteVertexError>
+    where
+        R: TryRamify<V>,
+    {
         let mut writer = DiagramWriter::<W, B>::new(writer);
         let Some(min_idx) = self.min_index else {
             return Ok(false);
@@ -121,9 +170,46 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                     .annotation(&vtx, &mut self.annotation_buf)
                     .expect("Writing to a `String` should not fail.");
 
+                let maybe_children = self.ramifier.try_children(vtx);
+
+                // FIXME: annoying workaround to deal with borrow checker
+                let children = if maybe_children.is_err() {
+                    let replacement = unsafe { maybe_children.unwrap_err_unchecked() };
+                    // put the column back, but with the replacement element
+                    self.columns.push((replacement, col));
+
+                    // recompute the min index
+                    let new_min_idx = self
+                        .columns
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
+                        .map(|(a, _)| a)
+                        .unwrap();
+
+                    self.min_index = Some(new_min_idx);
+
+                    let diagram_width =
+                        self.compute_diagram_width(ops::required_width(&self.columns, new_min_idx));
+
+                    while !self.is_singleton(new_min_idx) {
+                        ops::fork_align::<_, _, _, true>(
+                            &mut writer,
+                            &mut self.columns,
+                            new_min_idx,
+                            ..diagram_width,
+                        )?;
+                        writer.write_newline()?;
+                        #[cfg(test)]
+                        self.debug_cols_header("Wrote non-marker line");
+                    }
+                    return Err(WriteVertexError::TryChildrenFailed);
+                } else {
+                    unsafe { maybe_children.unwrap_unchecked() }
+                };
+
                 // append the new elements
-                self.columns
-                    .extend(self.ramifier.children(vtx).zip(repeat(col)));
+                self.columns.extend(children.into_iter().zip(repeat(col)));
 
                 (marker_char, col)
             } else {
@@ -137,15 +223,53 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                     .annotation(&vtx, &mut self.annotation_buf)
                     .expect("Writing to a `String` should not fail.");
 
-                // splice into the position of the last element, inserting the new children
+                let maybe_children = self.ramifier.try_children(vtx);
+                // FIXME: annoying workaround to deal with borrow checker
+                let children = if maybe_children.is_err() {
+                    let replacement = unsafe { maybe_children.unwrap_err_unchecked() };
+                    // put the column back with the replacement element
+                    let last_idx = self.columns.len();
+                    self.columns.push((replacement, col));
+                    self.columns.swap(last_idx, min_idx);
+
+                    // recompute the min index
+                    let new_min_idx = self
+                        .columns
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
+                        .map(|(a, _)| a)
+                        .unwrap();
+
+                    self.min_index = Some(new_min_idx);
+
+                    // prepare to write the vertex next iteration
+                    let diagram_width =
+                        self.compute_diagram_width(ops::required_width(&self.columns, new_min_idx));
+                    while !self.is_singleton(new_min_idx) {
+                        ops::fork_align::<_, _, _, true>(
+                            &mut writer,
+                            &mut self.columns,
+                            new_min_idx,
+                            ..diagram_width,
+                        )?;
+                        writer.write_newline()?;
+                        #[cfg(test)]
+                        self.debug_cols_header("Wrote non-marker line");
+                    }
+                    return Err(WriteVertexError::TryChildrenFailed);
+                } else {
+                    unsafe { maybe_children.unwrap_unchecked() }
+                };
+
+                // splice onto the swapped last element, inserting the new children
                 let last = {
-                    let mut iter = self.columns.splice(
-                        min_idx..min_idx + 1,
-                        self.ramifier.children(vtx).zip(repeat(col)),
-                    );
-                    // put the last element back
+                    let mut iter = self
+                        .columns
+                        .splice(min_idx..min_idx + 1, children.into_iter().zip(repeat(col)));
                     iter.next().unwrap()
                 };
+                // put the last element back
                 self.columns.push(last);
 
                 (marker_char, col)
@@ -170,7 +294,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
 
         // either get the next minimal index, or write the final line and annotation and return
         let Some(next_min_idx) = self.min_index else {
-            let offset = ops::marker(&mut writer, marker_char, 0, col)?;
+            let (_, offset) = ops::marker(&mut writer, marker_char, 0, col)?;
             let diagram_width = self.compute_diagram_width(offset);
             let annotation_alignment = (B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH;
 
@@ -180,13 +304,13 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                 writer.write_annotation_line(
                     line,
                     annotation_alignment,
-                    self.config.annotation_margin_left,
+                    self.config.annotation_margin,
                 )?;
                 for line in lines {
                     writer.write_annotation_line(
                         line,
                         annotation_alignment,
-                        self.config.annotation_margin_left,
+                        self.config.annotation_margin,
                     )?;
                 }
             } else {
@@ -199,7 +323,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
         let diagram_width =
             self.compute_diagram_width(ops::required_width(&self.columns, next_min_idx));
 
-        let delay_fork = self.config.annotation_margin_below > 0;
+        let delay_fork = self.config.row_padding > 0;
 
         if next_min_idx < l {
             // the next minimal index lands before the marker
@@ -220,42 +344,54 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                 )?
             };
 
-            offset = ops::marker(&mut writer, marker_char, offset, col)?;
-            ops::align(&mut writer, &mut self.columns[r..], offset..diagram_width)?;
+            let (actual, next_offset) = ops::marker(&mut writer, marker_char, offset, col)?;
+            offset = next_offset;
+            if r < self.columns.len() {
+                writer.queue_blank(offset.min(self.columns[r].1) - actual);
+                ops::align(&mut writer, &mut self.columns[r..], offset..diagram_width)?;
+            }
         } else if next_min_idx < r {
             // the next minimal index is a child of the marker
 
             // first, we use `align` on the preceding columns to make as much space as
-            // possible. we can use the unbounded version since `align` by default compats and this
+            // possible. we can use the unbounded version since `align` by default compacts and this
             // may result in better codegen
             let mut offset = ops::align(&mut writer, &mut self.columns[..l], ..)?;
-            offset = ops::mark_and_prepare(
+            let (actual, next_offset) = ops::mark_and_prepare(
                 &mut writer,
                 &self.columns,
                 marker_char,
                 offset,
                 next_min_idx,
             )?;
-            ops::align(&mut writer, &mut self.columns[r..], offset..diagram_width)?;
+            offset = next_offset;
+            if r < self.columns.len() {
+                writer.queue_blank(offset.min(self.columns[r].1) - actual);
+                ops::align(&mut writer, &mut self.columns[r..], offset..diagram_width)?;
+            }
         } else {
             // the next minimal index follows the marker
 
             let mut offset = ops::align(&mut writer, &mut self.columns[..l], ..)?;
-            offset = ops::marker(&mut writer, marker_char, offset, col)?;
-            if delay_fork {
-                ops::fork_align::<_, _, _, false>(
-                    &mut writer,
-                    &mut self.columns[r..],
-                    next_min_idx - r,
-                    offset..diagram_width,
-                )?;
-            } else {
-                ops::fork_align::<_, _, _, true>(
-                    &mut writer,
-                    &mut self.columns[r..],
-                    next_min_idx - r,
-                    offset..diagram_width,
-                )?;
+            let (actual, next_offset) = ops::marker(&mut writer, marker_char, offset, col)?;
+            offset = next_offset;
+            if r < self.columns.len() {
+                writer.queue_blank(offset.min(self.columns[r].1) - actual);
+                if delay_fork {
+                    ops::fork_align::<_, _, _, false>(
+                        &mut writer,
+                        &mut self.columns[r..],
+                        next_min_idx - r,
+                        offset..diagram_width,
+                    )?;
+                } else {
+                    ops::fork_align::<_, _, _, true>(
+                        &mut writer,
+                        &mut self.columns[r..],
+                        next_min_idx - r,
+                        offset..diagram_width,
+                    )?;
+                }
             }
         };
 
@@ -269,7 +405,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             writer.write_annotation_line(
                 line,
                 annotation_alignment,
-                self.config.annotation_margin_left,
+                self.config.annotation_margin,
             )?;
         } else {
             writer.write_newline()?;
@@ -290,7 +426,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
                 writer.write_annotation_line(
                     prev_line,
                     annotation_alignment,
-                    self.config.annotation_margin_left,
+                    self.config.annotation_margin,
                 )?;
                 #[cfg(test)]
                 self.debug_cols_header("Wrote annotation line");
@@ -307,14 +443,14 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
             writer.write_annotation_line(
                 prev_line,
                 annotation_alignment,
-                self.config.annotation_margin_left,
+                self.config.annotation_margin,
             )?;
             #[cfg(test)]
             self.debug_cols_header("Wrote final annotation line");
         }
 
         // write some padding lines, and also prepare for the next row simultaneously
-        for _ in 0..self.config.annotation_margin_below {
+        for _ in 0..self.config.row_padding {
             ops::fork_align::<_, _, _, true>(
                 &mut writer,
                 &mut self.columns,
@@ -355,7 +491,7 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// ```
     /// This is not the same as the width of the diagram row which was previously written. However,
     /// we can use this information to compute the width of the diagram row by taking the maximum of the edge index and the
-    /// edge index prior to writing a row, and then adding `1`.
+    /// edge index prior to writing a row, multiplying by the gutter width, and then adding `1`.
     pub fn max_edge_index(&self) -> Option<usize> {
         self.columns.last().map(|(_, c)| *c)
     }
@@ -366,7 +502,8 @@ impl<V, R: Ramify<V>, B: WriteBranch> Generator<V, R, B> {
     /// distinct from the number of outgoing edges.
     ///
     /// Also note that there might be internal whitespace. In particular, this number is distinct
-    /// from the actual width (in characters) of the diagram.
+    /// from the actual width (in characters) of the diagram, even after taking into account the
+    /// gutter width.
     pub fn girth(&self) -> usize {
         self.columns.len()
     }

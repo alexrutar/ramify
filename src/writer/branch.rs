@@ -81,27 +81,26 @@ impl Branch {
     }
 }
 
-/// A macro to generate a [`WriteBranch`](crate::writer::WriteBranch) implementation from a
-/// list of box-drawing characters.
+/// A macro to generate a custom branch diagram style from a list of box-drawing characters.
 ///
 /// The macro expects a struct with standard visiblilty parameters,
-/// followed by a custom internal syntax to specify the list of characters to use in the branch diagram and whether or not to include
-/// internal whitespace.
+/// with custom struct-like syntax to specify the list of characters to use in the branch diagram and the amount of internal whitespace.
 ///
-/// For example, to implement [`RoundedCornersWide`](crate::writer::RoundedCornersWide) with
-/// local visiblity:
+/// For example, to implement a mix of [`SharpCornersWide`](crate::writer::SharpCornersWide) and [`RoundedCornersWide`](crate::writer::RoundedCornersWide) with
+/// local visiblity and extra internal whitespace:
 /// ```
 /// use ramify::writer::branch_writer;
 ///
 /// branch_writer!(
-///     /// A style which uses rounded corners and additional internal whitespace.
-///     pub(crate) struct RoundedCornersWide {
-///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
-///         gutter_width: 1,
+///     /// A style which mixes rounded corners and sharp corners, with a lot of
+///     /// internal whitespace.
+///     pub(crate) struct MixedCornersExtraWide {
+///         charset: ["│", "─", "┐", "┌", "╯", "╰", "┤", "├", "┬", "┼"],
+///         gutter_width: 2, // {Rounded/Sharp}CornersWide uses `gutter_width = 1`
 ///     }
 /// );
 /// ```
-/// The resulting struct will be a unit struct `pub(crate) struct RoundedCornersWide;` which implements the
+/// The resulting struct will be a unit struct `pub(crate) struct MixedCornersExtraWide;` which implements the
 /// [`WriteBranch`](crate::writer::WriteBranch) trait. Any struct attributes (such as docstrings or derives) are propagated.
 ///
 /// The order in the `charset` field must match the order above. The string literals in the

@@ -1,8 +1,8 @@
 //! # Ramify
 //!
-//! Ramify is a library for generating *branch diagrams* for heirarchical data.
+//! Ramify is a library for generating *branch diagrams* to visualize hierarchical data.
 //! ```txt
-//! 0       0         0    
+//! 0       0         0
 //! ├╮      ├┬╮       ├┬╮  
 //! 1├╮     │1├╮      │1│  
 //! │2│     ││2│      2│╰─╮
@@ -20,20 +20,16 @@
 //! undo-tree of a text file. The order is the timestamp of the edit, and the tree structure
 //! results from the undo relation.
 //!
-//! Key features:
+//! Getting started:
 //!
-//! - Memory efficient streaming implementation: new vertices are not requested until the
-//!   parent vertex has been rendered.
-//! - Robust support for metadata via annotations.
-//! - Generic over ordered heirarchical data with efficient iteration over immediate children. See
-//!   the [`Ramify`] trait for more detail.
+//! - To describe your hierarchical data, implement [`Ramify`].
+//! - To generate the branch diagram itself, use the [`Generator`] struct.
+//! - To configure the diagram layout and appearance, see the [`Config`] struct and the
+//!   [`branch_writer!`] macro. Read more in the [`writer`] module.
 //!
-//! ## Basic examples
-//! TODO: write
-//!
-//! - fancy examples? spanning tree of a graph; vertex weights are visitation order (breadth first
-//!   search); like a* algorithm
-//! - 'ramify' allowed to take mutable self-reference?
+//! ## Usage examples
+//! Usage examples can be found in the [examples
+//! folder](https://github.com/alexrutar/ramify/blob/master/examples/README.md) on GitHub.
 
 #![deny(missing_docs)]
 
@@ -44,7 +40,9 @@ use std::fmt;
 
 pub use self::{layout::Generator, writer::Config};
 
-/// A trait representing heirarchical data structures with efficient iteration of children.
+/// A trait representing hierarchical data structures with efficient iteration of children.
+///
+/// For a version of this trait in which iteration of children might fail, see [`TryRamify`].
 ///
 /// ### Vertex type `V`
 /// The type `V` is a pointer-like type that the implementation should use to keep track of the posititon
@@ -106,7 +104,7 @@ pub trait Ramify<V> {
     /// ```
     /// Iterating in sorted order (either increasing or decreasing) or otherwise guaranteeing that
     /// the minimal element is first or last tends to produce narrower trees since this avoids 3-way forks.
-    fn children(&mut self, vtx: V) -> impl Iterator<Item = V>;
+    fn children(&mut self, vtx: V) -> impl IntoIterator<Item = V>;
 
     /// Get the key associated with a vertex.
     ///
@@ -119,7 +117,7 @@ pub trait Ramify<V> {
     /// several elements are equally minimum.
     ///
     /// The key is used ephemerally for sorting purposes and is not stored within the branch
-    /// diagram. In particular, this method could be callled many times for a given vertex.
+    /// diagram. In particular, this method could be called many times for a given vertex.
     ///
     /// # Key order
     ///
@@ -162,9 +160,7 @@ pub trait Ramify<V> {
 
     /// An annotation to write alongside a vertex.
     ///
-    /// This will be called exactly once per vertex, after its children have been computed via a
-    /// call to the
-    /// [`children`](Ramify::children) method.
+    /// This will be called exactly once per vertex.
     ///
     /// The lines of the annotations are written sequentially, with the first line written on the
     /// same line as the vertex with which it is associated.
@@ -173,20 +169,14 @@ pub trait Ramify<V> {
     ///
     /// # Implementation details
     ///
-    /// Implementations of this method should write the annotation directly into the buffer,
+    /// Implementations of this method should write the annotation directly into the [`fmt::Write`] buffer,
     /// including newlines for annotations spanning multiple lines. The annotations are
     /// automatically line-broken and aligned with the branch diagram when rendered.
     ///
     /// Like the standard library implementation of [`str::lines`](str#method.lines), the final
-    /// trailing newline is optional and ignored if present. If you want padding between your
-    /// annotations, it is better use the
-    /// [`margin_below`](Config::margin_below) option of the
-    /// [`Config`] struct.
-    ///
-    /// The `offset` argument is the number of characters that will be written before the
-    /// annotation is drawn. This includes any extra spaces requested in
-    /// [`margin_left`](Config::margin_left). This number can be used to prevent writing
-    /// very long lines to output if the tree is very wide.
+    /// trailing newline is optional and ignored if present. If you want extra space between
+    /// consecutive annotations, it is best to use the [`rowpadding`](Config::row_padding)
+    /// option of the [`Config`] struct.
     ///
     /// # Example
     ///
@@ -195,14 +185,68 @@ pub trait Ramify<V> {
     /// margin.
     /// ```txt
     /// 0   An annotation occupying two lines
-    /// ╰╮  followed by one line of padding
+    /// ╰╮  followed by one line of margin
     /// ╭┼╮
-    /// │1│ An annotation with one line and no padding.
+    /// │1│ An annotation with one line and no margin.
     /// 2╭╯
     ///  3  The annotation for vertex 2 is empty.
     /// ```
     #[allow(unused)]
     fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
         Ok(())
+    }
+}
+
+/// Try to iterate over the children of the vertex.
+///
+/// This is a fallible version of [`Ramify`] where the call to [`Ramify::children`] might fail.
+/// This trait instead has a method [`TryRamify::try_children`], which can either return a list of
+/// children, or fail and return a replacement vertex.
+///
+/// The [`Ramify`] docs contain much more detail. Here, we only document the differences.
+pub trait TryRamify<V> {
+    /// The key by which the vertices should be sorted.
+    type Key: Ord;
+
+    /// Iterate over the children of the vertex, or fail to do so.
+    ///
+    /// If a vertex is not ready to be iterated, a replacement must be returned in the `Err(_)`
+    /// variant. This new vertex will be compared with the other active vertices to determine the
+    /// new minimal vertex in the next write attempt.
+    ///
+    /// Since the vertex returned on an error might change, the marker and annotation associated
+    /// with the original vertex will be discarded and re-computed in the next attempt.
+    fn try_children(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, V>;
+
+    /// Get the key associated with a vertex.
+    fn get_key(&self, vtx: &V) -> Self::Key;
+
+    /// The vertex marker in the branch diagram.
+    fn marker(&self, vtx: &V) -> char;
+
+    /// An annotation to write alongside a vertex.
+    #[allow(unused)]
+    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+        Ok(())
+    }
+}
+
+impl<R: Ramify<V>, V> TryRamify<V> for R {
+    type Key = <Self as Ramify<V>>::Key;
+
+    fn try_children(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, V> {
+        Ok(<Self as Ramify<V>>::children(self, vtx))
+    }
+
+    fn get_key(&self, vtx: &V) -> Self::Key {
+        <Self as Ramify<V>>::get_key(self, vtx)
+    }
+
+    fn marker(&self, vtx: &V) -> char {
+        <Self as Ramify<V>>::marker(self, vtx)
+    }
+
+    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+        <Self as Ramify<V>>::annotation(self, vtx, buf)
     }
 }

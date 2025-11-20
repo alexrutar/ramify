@@ -1,30 +1,30 @@
 use super::*;
 
-fn assert_diag(root: Vertex<char>, margin_below: usize, expected: &str) {
+fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
     struct Ramifier;
 
-    impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
+    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
         type Key = char;
 
-        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
             vtx.data
         }
 
-        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
+        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
+        fn annotation<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
             buf.write_str(">0\n>1\n>2")
         }
     }
 
     let mut config = Config::<crate::writer::RoundedCorners>::new();
-    config.annotation_margin_below = margin_below;
+    config.row_padding = margin_below;
     assert_diag_impl(root, expected, Ramifier, config)
 }
 
@@ -267,10 +267,10 @@ fn small_multi() {
     .zip(expected_diags)
     {
         let root = {
-            let v1 = Vertex::leaf(c1);
-            let v2 = Vertex::leaf(c2);
-            let v3 = Vertex::leaf(c3);
-            Vertex::inner('0', vec![v1, v2, v3])
+            let v1 = Vtx::leaf(c1);
+            let v2 = Vtx::leaf(c2);
+            let v3 = Vtx::leaf(c3);
+            Vtx::inner('0', vec![v1, v2, v3])
         };
         assert_diag(root, 1, diag);
     }
@@ -280,22 +280,22 @@ fn small_multi() {
 fn final_annotation_alignment() {
     struct Ramifier;
 
-    impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
+    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
         type Key = char;
 
-        fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
+        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
             vtx.data
         }
 
-        fn marker(&self, vtx: &&'t Vertex<char>) -> char {
+        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(&self, vtx: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
+        fn annotation<B: fmt::Write>(&self, vtx: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
             if vtx.data == '8' {
                 buf.write_str(">0\n>1\n>2")?;
             }

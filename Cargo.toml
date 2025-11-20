@@ -1,6 +1,6 @@
 [package]
 name = "ramify"
-description = "Generate annotated branch diagrams from heirarchical data"
+description = "Generate annotated branch diagrams from hierarchical data"
 readme = "README.md"
 version = "0.1.0"
 edition = "2024"
@@ -9,3 +9,14 @@ keywords = ["tree", "streaming", "branch", "line art"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/autobib/ramify"
 categories = ["visualization"]
+
+[dev-dependencies]
+arrayvec = "0.7.6"
+rand = "0.9.2"
+rand_distr = "0.5.1"
+
+[[example]]
+name = "cascade"
+
+[[example]]
+name = "gallery"

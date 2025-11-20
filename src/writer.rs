@@ -1,4 +1,4 @@
-//! # Configuration and styles for the writer
+//! # Configuration and styles for writing the branch diagram writer.
 //!
 //! This module contains the [`Config`] struct, which defines the configuration used by the
 //! [`Generator`](crate::Generator) when drawing the branch diagram.
@@ -12,11 +12,14 @@
 //! algorithm](#layout-algorithm-documentation).
 //!
 //! ## Style gallery
-//! Here is a gallery of the various default lines styles.
+//! Here is a gallery of the default line styles. Here are the links:
+//!
+//! > [`RoundedCorners`]; [`SharpCorners`]; [`RoundedCornersWide`]; [`SharpCornersWide`]; [`DoubledLines`]
+//!
 //! ```txt
 //! rounded  sharp    rounded     sharp       doubled
 //! corners  corners  corners     corners     lines
-//!                   wide        wide        (only wide)
+//!                   wide        wide
 //!
 //!  0        0        0           0           0
 //!  ├┬╮      ├┬┐      ├─┬─╮       ├─┬─┐       ╠═╦═╗
@@ -45,19 +48,31 @@ use std::{fmt, io, marker::PhantomData};
 /// Configuration passed to a [`Generator`](crate::Generator) to control the appearance
 /// and layout of the branch diagram and associated annotations.
 ///
-/// See the individual fields for a short description of the configuration parameter.
+/// Configuration is separated into *layout* and *style*.
+///
+/// Layout is configured dynamically.
+/// See the public struct field documentation for a short description of the configuration parameters.
+/// This configuration can be modified while a generator is running using
+/// [`Generator::config_mut`](crate::Generator::config_mut).
+///
+/// The associated type parameter `B` is the diagram style which should implement [`WriteBranch`]. This includes features like whether to
+/// use sharp or rounded corners or the amount of extra internal spacing (gutters). This must be
+/// specified at compilation time. The built-in styles are documented in the [module-level
+/// docs](self#style-gallery).
 ///
 /// Note that the width numbers may be in terms of gutters rather than characters. If the gutter width
 /// is 0, this is the the same as the character width. In general, if the width is `n`, the
 /// resulting number of characters is `(gutter_width + 1) * n`.
 #[derive(Debug, Clone)]
 pub struct Config<B = RoundedCorners> {
-    /// The margin between each annotation. This is the number of characters. The default is `0`.
-    pub annotation_margin_below: usize,
+    /// Extra padding before each vertex. The padding applies after the annotation, or after the
+    /// vertex if there is no annotation. This is the number of characters. The default is `0`.
+    pub row_padding: usize,
     /// The margin between the annotation and the branch diagram. This is the number of characters. The default is `1`.
-    pub annotation_margin_left: usize,
-    /// Whether or not to allow extra an extra column of width slack, at the cost of occasionally
-    /// pushing the annotation to the right unnecessarily by the gutter width. The default is `false`.
+    pub annotation_margin: usize,
+    /// Whether or not to allow extra an extra column of width slack which can result in slightly
+    /// shorter branch diagrams. This is at the cost of pushing the annotation to the right
+    /// unnecessarily by the gutter width if the extra slack is not used. The default is `false`.
     pub width_slack: bool,
     /// The minimum width of the diagram. Annotations will never begin earlier than this.
     /// Margin requested in `margin_left` is added to of this parameter. This is the number of
@@ -85,11 +100,11 @@ impl<B> Config<B> {
     /// - [`with_doubled_lines`](Self::with_doubled_lines)
     pub const fn new() -> Self {
         Self {
-            annotation_margin_below: 0,
-            annotation_margin_left: 1,
-            branch_writer: PhantomData,
+            row_padding: 0,
+            annotation_margin: 1,
             width_slack: false,
             min_diagram_width: 0,
+            branch_writer: PhantomData,
         }
     }
 }
@@ -263,12 +278,11 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// The responsiblity of a branch writer is write the individual components of the branch diagram.
 /// However, a branch writer knows nothing about the current state: the state itself is held by
 /// the [`Generator`](crate::Generator) which then requests the relevant text from the branch
-/// writer. These requests take the form of [`Branch`]es, which represent the components used in the diagram.
+/// writer. These requests take the form of [`Branch`]es, which represent the components used in the diagram. The branch writer satisfies a request in the [`write_branch`](WriteBranch::write_branch) function.
 ///
 /// For performance reasons, instead of working directly with a [writer](io::Write), the
 /// implementation is requested to generate a format template which can be immediately passed to a
 /// closure for writing.
-///
 ///
 /// ### Basic example
 ///
@@ -368,7 +382,7 @@ pub trait WriteBranch {
     /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
     ///
     /// In order to optimize writes, the writer `f` only accepts an [`Arguments`](fmt::Arguments)
-    /// struct, which must be generated by using the [`format_args`] macro. Repetition and other
+    /// struct, which must be generated by using the [`format_args!`] macro. Repetition and other
     /// runtime-only operations must be handled with [formatting paramters](std::fmt#formatting-parameters).
     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
     where
@@ -396,9 +410,19 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
+    /// This is generated using the [`branch_writer!`] macro as follows:
+    /// ```
+    /// # use ramify::writer::branch_writer;
+    /// branch_writer! {
+    ///     pub struct RoundedCorners {
+    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+    ///         gutter_width: 0,
+    ///     }
+    /// }
+    /// ```
     pub struct RoundedCorners {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
-        gutter_width: 0
+        gutter_width: 0,
     }
 );
 
@@ -423,9 +447,19 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
+    /// This is generated using the [`branch_writer!`] macro as follows:
+    /// ```
+    /// # use ramify::writer::branch_writer;
+    /// branch_writer! {
+    ///     pub struct SharpCorners {
+    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+    ///         gutter_width: 0,
+    ///     }
+    /// }
+    /// ```
     pub struct SharpCorners {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
-        gutter_width: 0
+        gutter_width: 0,
     }
 );
 
@@ -449,6 +483,16 @@ branch_writer!(
     ///   8
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
+    /// ```
+    /// This is generated using the [`branch_writer!`] macro as follows:
+    /// ```
+    /// # use ramify::writer::branch_writer;
+    /// branch_writer! {
+    ///     pub struct RoundedCornersWide {
+    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+    ///         gutter_width: 1,
+    ///     }
+    /// }
     /// ```
     pub struct RoundedCornersWide {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
@@ -477,6 +521,16 @@ branch_writer!(
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
     /// ```
+    /// This is generated using the [`branch_writer!`] macro as follows:
+    /// ```
+    /// # use ramify::writer::branch_writer;
+    /// branch_writer! {
+    ///     pub struct SharpCornersWide {
+    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+    ///         gutter_width: 1,
+    ///     }
+    /// }
+    /// ```
     pub struct SharpCornersWide {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
         gutter_width: 1
@@ -503,6 +557,16 @@ branch_writer!(
     ///   8
     /// # ";
     #[doc = include_str!("writer/doctest_end.txt")]
+    /// ```
+    /// This is generated using the [`branch_writer!`] macro as follows:
+    /// ```
+    /// # use ramify::writer::branch_writer;
+    /// branch_writer! {
+    ///     pub struct DoubledLines {
+    ///         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
+    ///         gutter_width: 1,
+    ///     }
+    /// }
     /// ```
     pub struct DoubledLines {
         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],

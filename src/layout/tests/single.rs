@@ -1,28 +1,28 @@
 use super::*;
 
-struct Ramifier;
+fn assert_diag(root: Vtx<char>, expected: &str) {
+    struct Ramifier;
 
-impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
-    type Key = char;
+    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
+        type Key = char;
 
-    fn children(&mut self, vtx: &'t Vertex<char>) -> impl Iterator<Item = &'t Vertex<char>> {
-        vtx.children.iter()
+        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
+            vtx.children.iter()
+        }
+
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
+            vtx.data
+        }
+
+        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
+            vtx.data
+        }
+
+        fn annotation<B: Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
+            buf.write_char('#')
+        }
     }
 
-    fn get_key(&self, vtx: &&'t Vertex<char>) -> Self::Key {
-        vtx.data
-    }
-
-    fn marker(&self, vtx: &&'t Vertex<char>) -> char {
-        vtx.data
-    }
-
-    fn annotation<B: Write>(&self, _: &&'t Vertex<char>, mut buf: B) -> fmt::Result {
-        buf.write_char('#')
-    }
-}
-
-fn assert_diag(root: Vertex<char>, expected: &str) {
     assert_diag_impl(
         root,
         expected,
@@ -34,14 +34,14 @@ fn assert_diag(root: Vertex<char>, expected: &str) {
 #[test]
 fn lookahead() {
     let root = {
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::leaf('5');
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::leaf('3');
-        let v2 = Vertex::inner('2', vec![v4, v3, v5]);
-        let v1 = Vertex::inner('1', vec![v6]);
-        Vertex::inner('0', vec![v2, v1, v7])
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::inner('2', vec![v4, v3, v5]);
+        let v1 = Vtx::inner('1', vec![v6]);
+        Vtx::inner('0', vec![v2, v1, v7])
     };
 
     assert_diag(
@@ -125,10 +125,10 @@ fn small() {
     .zip(expected_diags)
     {
         let root = {
-            let v1 = Vertex::leaf(c1);
-            let v2 = Vertex::leaf(c2);
-            let v3 = Vertex::leaf(c3);
-            Vertex::inner('0', vec![v1, v2, v3])
+            let v1 = Vtx::leaf(c1);
+            let v2 = Vtx::leaf(c2);
+            let v3 = Vtx::leaf(c3);
+            Vtx::inner('0', vec![v1, v2, v3])
         };
         assert_diag(root, diag);
     }
@@ -137,14 +137,14 @@ fn small() {
 #[test]
 fn long_skip() {
     let root = {
-        let v7 = Vertex::leaf('7');
-        let v6 = Vertex::leaf('6');
-        let v5 = Vertex::inner('5', vec![v7]);
-        let v4 = Vertex::leaf('4');
-        let v3 = Vertex::leaf('3');
-        let v2 = Vertex::inner('2', vec![v3]);
-        let v1 = Vertex::inner('1', vec![v4, v5]);
-        Vertex::inner('0', vec![v1, v2, v6])
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::inner('5', vec![v7]);
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::inner('2', vec![v3]);
+        let v1 = Vtx::inner('1', vec![v4, v5]);
+        Vtx::inner('0', vec![v1, v2, v6])
     };
     assert_diag(
         root,
@@ -279,6 +279,89 @@ fn annotation_whitespace_management() {
 │6╭╯ #
 7╭╯ #
  8 #
+",
+    );
+}
+
+#[test]
+fn whitespace_after_marker() {
+    assert_diag(
+        ex7(),
+        "\
+0  #
+├╮
+│1  #
+│├╮
+││2  #
+││├╮
+││3│ #
+│4││ #
+││5│ #
+│6 │ #
+│├╮│
+││7│ #
+8│││ #
+╭╯│9 #
+a ││ #
+├╮││
+│b││ #
+││c│ #
+│││d #
+e│││ #
+ f││ #
+  g│ #
+   h #
+",
+    );
+
+    assert_diag(
+        ex8(),
+        "\
+0   #
+├┬╮
+│1├┬╮ #
+│││2├┬╮ #
+│││││3│ #
+││4││││ #
+│├╮││││
+││5││││ #
+││ 6│││ #
+││╭─╯7│ #
+││8╭─╯│ #
+│9 │╭─╯ #
+├╮╭╯│
+a││╭╯ #
+╭╯b│ #
+c╭┤│ #
+││d│ #
+││ e #
+│f #
+g #
+",
+    );
+
+    assert_diag(
+        ex9(),
+        "\
+0   #
+├┬╮
+│1├┬╮ #
+│││2├┬╮ #
+│││││3├╮ #
+│││││││4 #
+││││5│││ #
+││6│╭╯││ #
+││ 7│╭╯│ #
+││╭─╯│ 8 #
+│││  9╭╯ #
+│││╭┬╯│
+││││a╭╯ #
+││b│╭╯ #
+│c╭╯│ #
+│││ d #
+││e #
+│f #
+g #
 ",
     );
 }
