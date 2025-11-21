@@ -15,7 +15,7 @@ Ramify is a Rust library for generating *branch diagrams* to visualize hierarchi
         7╭╯          7
          8             
 ```
-See the [gallery](#gallery) for more images.
+See the [gallery](https://github.com/alexrutar/ramify#gallery) for more images.
 
 This library is specifically designed for ordered data: this is closer to the output of
 `git log --graph --all` than the output of `tree`.
@@ -32,7 +32,7 @@ The order is the timestamp of the edit, and the tree structure results from the 
 - No dependencies other than the standard library.
 
 Interested?
-Check out the [API documentation](https://docs.rs/crates/ramify) for more detail!
+Check out the [API documentation](https://docs.rs/ramify/latest/ramify/) for more detail!
 
 Basic examples can be found in the [examples folder](https://github.com/alexrutar/ramify/tree/master/examples).
 
