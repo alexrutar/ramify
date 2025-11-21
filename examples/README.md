@@ -2,6 +2,6 @@
 
 The examples are as follows.
 
-1. `basic.rs`: A basic example with an in-memory tree.
-2. `cascade.rs`: A streaming example which randomly generates child nodes according to a distribution. 
-3. `fallible.rs`: An example highlighting iteration which may fail non-deterministically.
+1. [`basic.rs`](https://github.com/alexrutar/ramify/blob/master/examples/basic.rs): A basic example with an in-memory tree.
+2. [`cascade.rs`](https://github.com/alexrutar/ramify/blob/master/examples/cascade.rs): A streaming example which randomly generates child nodes according to a distribution. 
+3. [`fallible.rs`](https://github.com/alexrutar/ramify/blob/master/examples/fallible.rs): An example highlighting iteration which may fail non-deterministically.

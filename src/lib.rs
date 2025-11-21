@@ -29,7 +29,7 @@
 //!
 //! ## Usage examples
 //! Usage examples can be found in the [examples
-//! folder](https://github.com/alexrutar/ramify/blob/master/examples/README.md) on GitHub.
+//! folder](https://github.com/alexrutar/ramify/tree/master/examples) on GitHub.
 
 #![deny(missing_docs)]
 

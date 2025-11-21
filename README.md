@@ -31,7 +31,10 @@ The order is the timestamp of the edit, and the tree structure results from the 
 - Generic over ordered hierarchical data with efficient iteration over immediate children.
 - No dependencies other than the standard library.
 
-Read the [API documentation](docs.rs/crates/ramify) for more detail!
+Interested?
+Check out the [API documentation](https://docs.rs/crates/ramify) for more detail!
+
+Basic examples can be found in the [examples folder](https://github.com/alexrutar/ramify/tree/master/examples).
 
 ## Gallery
 Basic examples with no annotation and various node markers
