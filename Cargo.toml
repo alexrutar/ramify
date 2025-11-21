@@ -2,12 +2,12 @@
 name = "ramify"
 description = "Generate annotated branch diagrams from hierarchical data"
 readme = "README.md"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Alex Rutar <alex@rutar.org>"]
 keywords = ["tree", "streaming", "branch"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/autobib/ramify"
+repository = "https://github.com/alexrutar/ramify"
 categories = ["visualization"]
 
 [dev-dependencies]
