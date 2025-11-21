@@ -1,8 +1,7 @@
-//! A basic example using a recursive in-memory tree.
+//! An example of a tree with annotations that is written in reverse.
+use std::io::{self, Write as _};
 
-use std::io;
-
-use ramify::{Config, Generator, Ramify};
+use ramify::{Config, Generator, Ramify, branch_writer};
 
 /// A basic recursive tree implementation.
 struct Vtx {
@@ -72,16 +71,30 @@ fn main() -> io::Result<()> {
         Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
     };
 
-    let mut config = Config::with_rounded_corners();
+    // define a custom 'inverted' style with characters swapped for correct writing
+    // from bottom-up
+    branch_writer! {
+        pub struct InvertedStyle {
+            charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┼"],
+            gutter_width: 0,
+            inverted: true,
+        }
+    }
 
-    // the amount of space between vertex rows / annotations
-    config.row_padding = 1;
+    // use our new style in the configuration
+    let config = Config::<InvertedStyle>::new();
 
     let mut generator = Generator::init(&tree, AnnotatingRamifier, config);
 
-    // repeatedly write to stdout until the tree is empty
+    // we can't print line-by-line to standard out, since we need to know the entire
+    // tree in order to print it backwards. instead we load the tree into a string buffer
+    let diag = generator.branch_diagram(usize::MAX).unwrap();
+
+    // iterate over the lines in reverse, printing them
     let mut writer = io::stdout();
-    while generator.write_next_vertex(&mut writer)? {}
+    for line in diag.lines().rev() {
+        writeln!(&mut writer, "{line}")?;
+    }
 
     Ok(())
 }

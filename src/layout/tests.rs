@@ -2,6 +2,7 @@ mod branch_macro;
 mod config;
 mod fallible;
 mod multiline;
+mod reverse;
 mod single;
 
 use std::fmt::{self, Write};

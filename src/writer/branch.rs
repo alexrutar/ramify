@@ -111,13 +111,36 @@ impl Branch {
 ///
 /// The `gutter_width` field is the number of extra unused columns placed between the vertical
 /// lines.
+///
+/// ## Inverting annotations
+///
+/// An optional `inverted` field can be set to true, which will cause annotations to be written in
+/// reverse order, with the vertex marker being written on the last row of annotation.
+/// This makes the annotations look correct if the tree is printed in reverse order down.
+/// Doing this also requires inverting the caracter set, as shown in the below example.
+/// ```
+/// use ramify::writer::branch_writer;
+///
+/// branch_writer!(
+///     /// An inverted style.
+///     struct Inverted {
+///         charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┼"],
+///         // inverted chars:   ^    ^     ^    ^              ^
+///         gutter_width: 0,
+///         inverted: true,
+///     }
+/// );
+/// ```
+/// A complete example can be found in the [examples
+/// folder](https://github.com/alexrutar/ramify/tree/master/examples).
 #[macro_export]
-macro_rules! branch_writer{
+macro_rules! branch_writer {
     (
         $(#[$outer:meta])*
         $vis:vis struct $name:ident {
             charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
-            gutter_width: $gutter_width:expr$(,)?
+            gutter_width: $gutter_width:expr,
+            inverted: $inverted:expr$(,)?
         }
     ) => {
         $(#[$outer])*
@@ -125,6 +148,8 @@ macro_rules! branch_writer{
 
         impl $crate::writer::WriteBranch for $name {
             const GUTTER_WIDTH: usize = $gutter_width;
+
+            const INVERTED: bool = $inverted;
 
             fn write_branch<F>(f: F, ws: usize, b: $crate::writer::Branch) -> ::std::io::Result<()>
             where
@@ -239,6 +264,22 @@ macro_rules! branch_writer{
                         ))
                     }
                 }
+            }
+        }
+    };
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident {
+            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
+            gutter_width: $gutter_width:expr$(,)?
+        }
+    ) => {
+        $crate::writer::branch_writer! {
+            $(#[$outer])*
+            $vis struct $name {
+                charset: [$ns, $ew, $sw, $se, $nw, $ne, $nsw, $nse, $sew, $nsew],
+                gutter_width: $gutter_width,
+                inverted: false,
             }
         }
     };

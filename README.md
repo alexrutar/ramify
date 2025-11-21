@@ -100,3 +100,22 @@ The same example, but with extra padding after the annotation and with 'width sl
 ╭╯
 8
 ```
+The same example, but with no extra padding and inverted.
+```
+ 8
+7╰╮
+│6╰╮
+││5╰╮
+│││4│ An annotation
+│││││ split over
+│││││ three lines
+││╰┼╯
+│╰╮│
+│3││ Another annotation
+││2│
+││├╯
+│1│ An annotation
+│││ with two lines
+├┴╯
+0
+```

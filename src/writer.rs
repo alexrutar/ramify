@@ -107,6 +107,11 @@ impl<B> Config<B> {
             branch_writer: PhantomData,
         }
     }
+
+    pub(crate) fn normalize_diagram_width(&self, width: usize) -> usize {
+        let slack: usize = self.width_slack.into();
+        (width + slack).max(self.min_diagram_width)
+    }
 }
 
 impl Config<RoundedCorners> {
@@ -379,6 +384,9 @@ pub trait WriteBranch {
     /// The number of extra internal columns.
     const GUTTER_WIDTH: usize;
 
+    /// Whether or not to generate the tree in 'inverted' mode.
+    const INVERTED: bool = false;
+
     /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
     ///
     /// In order to optimize writes, the writer `f` only accepts an [`Arguments`](fmt::Arguments)
@@ -414,12 +422,14 @@ branch_writer!(
     /// ```
     /// # use ramify::writer::branch_writer;
     /// branch_writer! {
+    ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct RoundedCorners {
     ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
     ///         gutter_width: 0,
     ///     }
     /// }
     /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCorners {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
         gutter_width: 0,
@@ -451,12 +461,14 @@ branch_writer!(
     /// ```
     /// # use ramify::writer::branch_writer;
     /// branch_writer! {
+    ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct SharpCorners {
     ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
     ///         gutter_width: 0,
     ///     }
     /// }
     /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct SharpCorners {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
         gutter_width: 0,
@@ -488,12 +500,14 @@ branch_writer!(
     /// ```
     /// # use ramify::writer::branch_writer;
     /// branch_writer! {
+    ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct RoundedCornersWide {
     ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
     ///         gutter_width: 1,
     ///     }
     /// }
     /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCornersWide {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
         gutter_width: 1,
@@ -525,15 +539,17 @@ branch_writer!(
     /// ```
     /// # use ramify::writer::branch_writer;
     /// branch_writer! {
+    ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct SharpCornersWide {
     ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
     ///         gutter_width: 1,
     ///     }
     /// }
     /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct SharpCornersWide {
         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
-        gutter_width: 1
+        gutter_width: 1,
     }
 );
 
@@ -562,14 +578,16 @@ branch_writer!(
     /// ```
     /// # use ramify::writer::branch_writer;
     /// branch_writer! {
+    ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct DoubledLines {
     ///         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
     ///         gutter_width: 1,
     ///     }
     /// }
     /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct DoubledLines {
         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
-        gutter_width: 1
+        gutter_width: 1,
     }
 );

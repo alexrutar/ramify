@@ -29,8 +29,6 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
 
 #[test]
 fn branch_macro() {
-    let root = ex1();
-
     branch_writer!(
         /// A weird style
         struct MyStyle {
@@ -40,7 +38,7 @@ fn branch_macro() {
     );
 
     assert_diag_annot(
-        root.clone(),
+        ex1(),
         Config::<MyStyle>::new(),
         "\
 0         #

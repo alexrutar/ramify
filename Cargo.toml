@@ -22,4 +22,7 @@ name = "basic"
 name = "cascade"
 
 [[example]]
+name = "inverted"
+
+[[example]]
 name = "fallible"

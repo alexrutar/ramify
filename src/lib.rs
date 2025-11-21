@@ -69,8 +69,8 @@ pub use self::{
 ///   minimal vertex.
 /// - [`Ramify::children`] is called exactly once to replace the current minimal vertex with its
 ///   children
-/// - [`Ramify::get_key`] is called once for every active vertex (including the children of the
-///   previous vertex) to determine the new minimal vertex.
+/// - [`Ramify::get_key`] is called once for every active vertex every time a new vertex is
+///   generated.
 ///
 /// Moreover, the call to [`Ramify::children`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
 /// The other methods only take a reference to the vertex rather than receive the vertex itself.
@@ -207,6 +207,12 @@ pub trait Ramify<V> {
 /// children, or fail and return a replacement vertex.
 ///
 /// The [`Ramify`] docs contain much more detail. Here, we only document the differences.
+///
+/// ### Blanket implementation
+///
+/// There is a blanket implementation of `TryRamify<V>` whenever a type is `Ramify<V>` with the
+/// call to [`try_children`](TryRamify::try_children) always returning `Ok(_)`. In particular, you can use
+/// a [`Ramify`] implementation anywhere a [`TryRamify`] implementation is expected.
 pub trait TryRamify<V> {
     /// The key by which the vertices should be sorted.
     type Key: Ord;
