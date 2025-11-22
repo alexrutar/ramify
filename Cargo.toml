@@ -2,7 +2,7 @@
 name = "ramify"
 description = "Generate annotated branch diagrams from hierarchical data"
 readme = "README.md"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 authors = ["Alex Rutar <alex@rutar.org>"]
 keywords = ["tree", "streaming", "branch"]
