@@ -1,20 +1,3 @@
-Inverted mode:
-- also print the vertex last (on top of reversing the order)
-- new `WriteRow` trait, implemented for any `io::Write`
-- remove the inverted thing from the trait and put it into the config instead
-
-Add a new `Columns` data structure:
-- basic operations on 'blocks': align, fork, fork_prepare
-- should internally hold an `&mut [(V, usize)]`
-
-Better basic operations
-- basic operations like writing vertex row, preparing vertex row, write padding row, etc
-  be abstracted as 'internal' methods? maybe if they are clean enough they can become
-  external methods
-
-
-
-
 Documentation:
 
 - introduce basic terminology; vertex; children; parent
