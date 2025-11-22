@@ -30,7 +30,7 @@ use self::columns::Columns;
 /// This struct can be configured by passing an appropriate [`Config`] struct. The configuration
 /// contains compile-time and runtime configuration. The compile-time configuration is included in
 /// the state parameter (for example, a [`RoundedCorners`] parameter), which describes the appearance of the
-/// branch diagram. The runtime configuration concerns features relevant to the layout algorithm.
+/// branch diagram. The runtime configuration concerns configuration relevant to the layout algorithm.
 ///
 /// It is possible to modify configuration while writing the diagram (that is, in between calls to
 /// [`write_next_vertex`](Self::write_next_vertex)) by using the [`config_mut`](Self::config_mut)
