@@ -27,6 +27,7 @@ use self::columns::Columns;
 /// is documented in the [`writer` module](crate::writer#layout-algorithm-documentation).
 ///
 /// ## Compile-time and dynamic configuration
+///
 /// This struct can be configured by passing an appropriate [`Config`] struct. The configuration
 /// contains compile-time and runtime configuration. The compile-time configuration is included in
 /// the state parameter (for example, a [`RoundedCorners`] parameter), which describes the appearance of the
@@ -37,11 +38,53 @@ use self::columns::Columns;
 /// method. Any such modifications of the configuration are guaranteed to not
 /// corrupt the branch diagram.
 ///
-/// ## Runtime and memory complexity
+/// ## Interaction with the [`Ramify`] trait.
+///
+/// ### Method call guarantees
+///
+/// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
+/// when rendering a row and its annotation (a single call to
+/// [`write_next_vertex`](Generator::write_next_vertex)).
+///
+/// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
+/// - [`Ramify::annotation`] is called exactly once called to determine the annotation for the
+///   minimal vertex.
+/// - [`Ramify::children`] is called exactly once to replace the current minimal vertex with its
+///   children
+/// - [`Ramify::get_key`] is called once for every active vertex every time a new vertex is
+///   generated.
+///
+/// Moreover, the call to [`Ramify::children`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
+/// The other methods only take a reference to the vertex rather than receive the vertex itself.
+///
+/// Otherwise, the relative order between these calls, and moreover the order relative to writes, is unspecified.
+///
+/// ### Resource management
+///
+/// The vertex type `V` can either be borrowed or owned. If you are iterating over an in-memory
+/// recursive type like
+/// ```
+/// struct Vtx<T>(T, Vec<Vtx<T>>);
+/// ```
+/// or an equivalent flattened version, then `V` is probably a lightweight type like `&'t Vtx` or a
+/// `usize` index.
+///
+/// If the vertices are loaded in a streaming fashion, then most likely `V` is an owned type and
+/// therefore it is managed by the generator.
+///
+/// Internally, the generator maintains a list of *active vertices*: the vertices not yet drawn to
+/// the diagram, but for which a parent has already been drawn to the diagram. Once a vertex has
+/// been drawn to the diagram, it is passed to [`Ramify::children`] or [`TryRamify::try_children`],
+/// which takes ownership of `V`.
+///
+/// A generator will *never* drop a vertex while it is running. Therefore all of the resource
+/// management takes place in the [`Ramify`] or [`TryRamify`] implementation. If you drop a
+/// generator, the list of active vertices will be de-allocated. You can recover the list of active vertices using [`into_active_vertices`](Self::into_active_vertices).
+///
+/// ### Runtime and memory complexity
 ///
 /// The branch diagram generator holds the minimal possible state required to generate the diagram.
-/// This state is essentially list of column indices corresponding to the *active vertices*: the vertices not yet drawn to the diagram, but
-/// for which a parent has already been drawn to the diagram.
+/// This state is essentially the active vertices plus additional metadata concerning the column to which the vertex belongs in the diagram.
 /// More precisely, the memory usage is `(4 + size_of<V>) * num_active_vertices` plus a constant
 /// if you do not write annotations.
 ///
@@ -101,14 +144,15 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
 /// An error which can occur when calling [`Generator::try_write_next_vertex`].
 #[derive(Debug)]
-pub enum WriteVertexError {
+pub enum WriteVertexError<E> {
     /// An IO error was raised by the writer.
     IO(io::Error),
-    /// The [`TryRamify`] implementation failed to determine the children for the active vertex.
-    TryChildrenFailed,
+    /// The [`TryRamify`] implementation failed to determine the children for the active vertex and
+    /// returned the corresponding error.
+    TryChildrenFailed(E),
 }
 
-impl From<io::Error> for WriteVertexError {
+impl<E> From<io::Error> for WriteVertexError<E> {
     fn from(err: io::Error) -> Self {
         Self::IO(err)
     }
@@ -146,7 +190,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         self.try_write_next_vertex(writer).map_err(|e| match e {
             WriteVertexError::IO(error) => error,
             // the implementation of TryRamify if `R` is `Ramify` always succeeds
-            WriteVertexError::TryChildrenFailed => unreachable!(),
+            WriteVertexError::TryChildrenFailed(_) => unreachable!(),
         })
     }
 
@@ -179,6 +223,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_children`]
     /// results in an error.
     ///
+    /// The error is propagated in the [`WriteVertexError`] and can be used
+    /// by the caller to decide whether or not to attempt to write the row again.
+    ///
+    /// # Handling of the replacement vertex
+    ///
     /// If the call fails and the replacement vertex is different, this could still result in some
     /// rows written in order to prepare the new vertex to be written immediately if the next call
     /// succeeds.
@@ -188,7 +237,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     pub fn try_write_next_vertex<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError>
+    ) -> Result<bool, WriteVertexError<R::Error>>
     where
         R: TryRamify<V>,
     {
@@ -203,7 +252,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     fn try_write_next_vertex_normal<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError>
+    ) -> Result<bool, WriteVertexError<R::Error>>
     where
         R: TryRamify<V>,
     {
@@ -290,7 +339,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     fn try_write_next_vertex_inverted<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError>
+    ) -> Result<bool, WriteVertexError<R::Error>>
     where
         R: TryRamify<V>,
     {
@@ -448,24 +497,28 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         self_min_index: &mut Option<usize>,
         min_idx: usize,
         writer: &mut DiagramWriter<W, B>,
-    ) -> Result<(usize, usize), WriteVertexError>
+    ) -> Result<(usize, usize), WriteVertexError<R::Error>>
     where
         R: TryRamify<V>,
     {
         // substitute and update minimal index
-        let Some((l, r)) = self_columns.substitute(min_idx) else {
-            // recompute the min index
-            let new_min_idx = self_columns.min_index().unwrap();
+        match self_columns.substitute(min_idx) {
+            Ok((l, r)) => {
+                *self_min_index = self_columns.min_index();
+                Ok((l, r))
+            }
+            Err(e) => {
+                // recompute the min index
+                let new_min_idx = self_columns.min_index().unwrap();
 
-            *self_min_index = Some(new_min_idx);
+                *self_min_index = Some(new_min_idx);
 
-            // prepare to write the vertex next iteration
-            let diagram_width = self_columns.diagram_width(new_min_idx);
-            self_columns.make_singleton(new_min_idx, writer, diagram_width, 0)?;
-            return Err(WriteVertexError::TryChildrenFailed);
-        };
-        *self_min_index = self_columns.min_index();
-        Ok((l, r))
+                // prepare to write the vertex next iteration
+                let diagram_width = self_columns.diagram_width(new_min_idx);
+                self_columns.make_singleton(new_min_idx, writer, diagram_width, 0)?;
+                return Err(WriteVertexError::TryChildrenFailed(e));
+            }
+        }
     }
 
     /// The index of the final `open` edge, or `None` if there are no edges.
@@ -499,6 +552,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Whether or not there are any active vertices.
     pub fn is_empty(&self) -> bool {
         self.columns.is_empty()
+    }
+
+    /// An iterator over the active vertices.
+    pub fn into_active_vertices(self) -> impl Iterator<Item = V> + ExactSizeIterator {
+        self.columns.into_active_vertices()
     }
 }
 

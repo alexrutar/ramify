@@ -3,9 +3,8 @@ use super::ops;
 use std::{io, iter::repeat, ops::Range};
 
 use crate::{
-    TryRamify,
-    writer::Config,
-    writer::{DiagramWriter, WriteBranch},
+    Replacement, TryRamify,
+    writer::{Config, DiagramWriter, WriteBranch},
 };
 
 #[derive(Debug)]
@@ -30,6 +29,10 @@ impl<V, R, B> Columns<V, R, B> {
             ramifier,
             config,
         }
+    }
+
+    pub fn into_active_vertices(self) -> impl Iterator<Item = V> + ExactSizeIterator {
+        self.columns.into_iter().map(|(v, _)| v)
     }
 
     pub fn max_edge_index(&self) -> Option<usize> {
@@ -61,7 +64,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             .expect("Writing to a `String` should not fail.");
     }
 
-    pub fn substitute(&mut self, min_idx: usize) -> Option<(usize, usize)> {
+    pub fn substitute(&mut self, min_idx: usize) -> Result<(usize, usize), R::Error> {
         let original_col_count = self.columns.len();
 
         // use the 'sentinel' pattern
@@ -75,18 +78,20 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             let maybe_children = self.ramifier.try_children(vtx);
 
             // FIXME: annoying workaround to deal with borrow checker
-            let children = if maybe_children.is_err() {
-                let replacement = unsafe { maybe_children.unwrap_err_unchecked() };
+            if maybe_children.is_err() {
+                let Replacement {
+                    value: replacement,
+                    err,
+                } = unsafe { maybe_children.unwrap_err_unchecked() };
                 // put the column back, but with the replacement element
                 self.columns.push((replacement, col));
 
-                return None;
+                return Err(err);
             } else {
-                unsafe { maybe_children.unwrap_unchecked() }
+                let children = unsafe { maybe_children.unwrap_unchecked() };
+                // append the new elements
+                self.columns.extend(children.into_iter().zip(repeat(col)));
             };
-
-            // append the new elements
-            self.columns.extend(children.into_iter().zip(repeat(col)));
         } else {
             // temporarily swap the minimal element with the last element
             let (vtx, col) = self.columns.swap_remove(min_idx);
@@ -94,33 +99,36 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             let maybe_children = self.ramifier.try_children(vtx);
 
             // FIXME: annoying workaround to deal with borrow checker
-            let children = if maybe_children.is_err() {
-                let replacement = unsafe { maybe_children.unwrap_err_unchecked() };
+            if maybe_children.is_err() {
+                let Replacement {
+                    value: replacement,
+                    err,
+                } = unsafe { maybe_children.unwrap_err_unchecked() };
                 // put the column back with the replacement element
                 let last_idx = self.columns.len();
                 self.columns.push((replacement, col));
                 self.columns.swap(last_idx, min_idx);
 
-                return None;
+                return Err(err);
             } else {
-                unsafe { maybe_children.unwrap_unchecked() }
-            };
+                let children = unsafe { maybe_children.unwrap_unchecked() };
 
-            // splice onto the swapped last element, inserting the new children
-            let last = {
-                let mut iter = self
-                    .columns
-                    .splice(min_idx..min_idx + 1, children.into_iter().zip(repeat(col)));
-                iter.next().unwrap()
+                // splice onto the swapped last element, inserting the new children
+                let last = {
+                    let mut iter = self
+                        .columns
+                        .splice(min_idx..min_idx + 1, children.into_iter().zip(repeat(col)));
+                    iter.next().unwrap()
+                };
+                // put the last element back
+                self.columns.push(last);
             };
-            // put the last element back
-            self.columns.push(last);
         };
 
         // compute the number of new elements added by checking how much the length changed.
         let child_count = self.columns.len() + 1 - original_col_count;
 
-        Some((min_idx, min_idx + child_count))
+        Ok((min_idx, min_idx + child_count))
     }
 
     pub fn diagram_width(&self, min_idx: usize) -> usize {

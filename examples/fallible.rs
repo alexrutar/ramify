@@ -2,7 +2,7 @@
 
 use std::io;
 
-use ramify::{Config, Generator, TryRamify, WriteVertexError};
+use ramify::{Config, Generator, Replacement, TryRamify, WriteVertexError};
 use rand::distr::{Bernoulli, Distribution};
 
 /// A basic recursive tree implementation.
@@ -33,16 +33,22 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
     /// Here, the `None` variant implies that rendering has failed.
     type Key = Option<char>;
 
+    /// We don't include any extra context if rendering fails.
+    type Error = ();
+
     fn try_children(
         &mut self,
         vtx: Option<&'t Vtx>,
-    ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Option<&'t Vtx>> {
+    ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Replacement<Option<&'t Vtx>, Self::Error>>
+    {
         match vtx {
             Some(v) => {
                 // with probability 0.3, rendering "fails", unless we are at vertex 0
                 let d = Bernoulli::new(0.3).unwrap();
                 if v.data != '0' && d.sample(&mut rand::rng()) {
-                    Err(None)
+                    // the `Replacement` struct with unit error can be converted to
+                    // from the vertex type
+                    Err(None.into())
                 } else {
                     Ok(v.children.iter().map(Some))
                 }
@@ -103,7 +109,7 @@ fn main() -> io::Result<()> {
             // failed to write to stdout; bail
             Err(WriteVertexError::IO(e)) => return Err(e),
             // if rendering failed, we just retry it
-            Err(WriteVertexError::TryChildrenFailed) => {}
+            Err(WriteVertexError::TryChildrenFailed(())) => {}
         }
     }
 

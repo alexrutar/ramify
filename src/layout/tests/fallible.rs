@@ -1,3 +1,5 @@
+use crate::Replacement;
+
 use super::*;
 
 struct Ramifier;
@@ -5,12 +7,14 @@ struct Ramifier;
 impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
     type Key = char;
 
+    type Error = ();
+
     fn try_children(
         &mut self,
         vtx: &'t Vtx<char>,
-    ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, &'t Vtx<char>> {
+    ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, Replacement<&'t Vtx<char>>> {
         if vtx.data == '2' {
-            Err(vtx.children.iter().next().unwrap())
+            Err(vtx.children.iter().next().unwrap().into())
         } else {
             Ok(vtx.children.iter())
         }

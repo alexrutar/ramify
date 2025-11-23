@@ -22,12 +22,13 @@
 //!
 //! Getting started:
 //!
-//! - To describe your hierarchical data, implement [`Ramify`].
+//! - To describe your hierarchical data, implement [`Ramify`] or [`TryRamify`].
 //! - To generate the branch diagram itself, use the [`Generator`] struct.
-//! - To configure the diagram layout and appearance, see the [`Config`] struct and the
+//! - To configure the diagram layout and appearance, use the [`Config`] struct or the
 //!   [`branch_writer!`] macro. Read more in the [`writer`] module.
 //!
 //! ## Usage examples
+//!
 //! Usage examples can be found in the [examples
 //! folder](https://github.com/alexrutar/ramify/tree/master/examples) on GitHub.
 
@@ -36,7 +37,7 @@
 mod layout;
 pub mod writer;
 
-use std::fmt;
+use std::{convert::Infallible, fmt};
 
 pub use self::{
     layout::{Generator, WriteVertexError},
@@ -47,35 +48,7 @@ pub use self::{
 ///
 /// For a version of this trait in which iteration of children might fail, see [`TryRamify`].
 ///
-/// ### Vertex type `V`
-/// The type `V` is a pointer-like type that the implementation should use to keep track of the posititon
-/// within the data.
-///
-/// If you are using a recursive tree type like
-/// ```
-/// struct Vtx<T>(T, Vec<Vtx<T>>);
-/// ```
-/// then `V` is perhaps a reference `&'t Vtx`. If your data is stored in some sort of flat data structure, then `V` is
-/// perhaps an index like `usize`.
-///
-/// ### Method calls when driven by a [`Generator`]
-///
-/// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
-/// when rendering a row and its annotation (a single call to
-/// [`write_next_vertex`](Generator::write_next_vertex)).
-///
-/// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
-/// - [`Ramify::annotation`] is called exactly once called to determine the annotation for the
-///   minimal vertex.
-/// - [`Ramify::children`] is called exactly once to replace the current minimal vertex with its
-///   children
-/// - [`Ramify::get_key`] is called once for every active vertex every time a new vertex is
-///   generated.
-///
-/// Moreover, the call to [`Ramify::children`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
-/// The other methods only take a reference to the vertex rather than receive the vertex itself.
-///
-/// Otherwise, the relative order between these calls, and moreover the order relative to writes, is unspecified.
+/// Also see the [`Generator`] documentation for more information, particularly concerning [the sequence of method calls](Generator#method-call-guarantees) and [resource mangement](Generator#resource-management).
 pub trait Ramify<V> {
     /// The key by which the vertices should be sorted.
     ///
@@ -200,6 +173,25 @@ pub trait Ramify<V> {
     }
 }
 
+/// A replacement vertex returned when a ramifier fails to determine the children associated with
+/// a vertex.
+///
+/// This struct is used as the error variant returned by [`TryRamify::try_children`]. See those
+/// docs for more detail.
+#[derive(Debug)]
+pub struct Replacement<V, E = ()> {
+    /// The replacement vertex, which might be the same as the original vertex.
+    pub value: V,
+    /// The associated error.
+    pub err: E,
+}
+
+impl<V> From<V> for Replacement<V, ()> {
+    fn from(value: V) -> Self {
+        Self { value, err: () }
+    }
+}
+
 /// Try to iterate over the children of the vertex.
 ///
 /// This is a fallible version of [`Ramify`] where the call to [`Ramify::children`] might fail.
@@ -217,9 +209,12 @@ pub trait TryRamify<V> {
     /// The key by which the vertices should be sorted.
     type Key: Ord;
 
+    /// An error which may occur while trying to retrieve the children.
+    type Error;
+
     /// Try to iterate over the children of the vertex.
     ///
-    /// If a vertex is not ready to be iterated, a replacement must be returned in the `Err(_)`
+    /// If a vertex is not ready to be iterated, a replacement must be specified in the `Err(_)`
     /// variant.
     ///
     /// 1. If the same vertex is returned, this operation is idempotent. In other words, failing to
@@ -231,7 +226,10 @@ pub trait TryRamify<V> {
     ///
     /// Since the vertex returned on an error might change, the marker and annotation associated
     /// with the original vertex will be discarded and re-computed in the next attempt.
-    fn try_children(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, V>;
+    fn try_children(
+        &mut self,
+        vtx: V,
+    ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>>;
 
     /// Get the key associated with a vertex.
     fn get_key(&self, vtx: &V) -> Self::Key;
@@ -249,7 +247,12 @@ pub trait TryRamify<V> {
 impl<R: Ramify<V>, V> TryRamify<V> for R {
     type Key = <Self as Ramify<V>>::Key;
 
-    fn try_children(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, V> {
+    type Error = Infallible;
+
+    fn try_children(
+        &mut self,
+        vtx: V,
+    ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>> {
         Ok(<Self as Ramify<V>>::children(self, vtx))
     }
 
