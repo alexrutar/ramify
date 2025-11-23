@@ -516,7 +516,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                 // prepare to write the vertex next iteration
                 let diagram_width = self_columns.diagram_width(new_min_idx);
                 self_columns.make_singleton(new_min_idx, writer, diagram_width, 0)?;
-                return Err(WriteVertexError::TryChildrenFailed(e));
+                Err(WriteVertexError::TryChildrenFailed(e))
             }
         }
     }
@@ -555,7 +555,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 
     /// An iterator over the active vertices.
-    pub fn into_active_vertices(self) -> impl Iterator<Item = V> + ExactSizeIterator {
+    pub fn into_active_vertices(self) -> impl ExactSizeIterator<Item = V> {
         self.columns.into_active_vertices()
     }
 }

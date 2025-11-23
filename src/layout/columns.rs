@@ -31,7 +31,7 @@ impl<V, R, B> Columns<V, R, B> {
         }
     }
 
-    pub fn into_active_vertices(self) -> impl Iterator<Item = V> + ExactSizeIterator {
+    pub fn into_active_vertices(self) -> impl ExactSizeIterator<Item = V> {
         self.columns.into_iter().map(|(v, _)| v)
     }
 
