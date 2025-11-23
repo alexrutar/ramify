@@ -4,13 +4,11 @@ fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
     struct Ramifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        type Key = char;
-
         fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -281,13 +279,11 @@ fn final_annotation_alignment() {
     struct Ramifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        type Key = char;
-
         fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 

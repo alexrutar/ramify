@@ -5,13 +5,11 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
     struct AnnotatingRamifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for AnnotatingRamifier {
-        type Key = char;
-
         fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
+        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 

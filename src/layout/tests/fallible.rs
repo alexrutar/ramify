@@ -5,8 +5,6 @@ use super::*;
 struct Ramifier;
 
 impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
-    type Key = char;
-
     type Error = ();
 
     fn try_children(
@@ -20,7 +18,7 @@ impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
         }
     }
 
-    fn get_key(&self, vtx: &&'t Vtx<char>) -> Self::Key {
+    fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
         vtx.data
     }
 

@@ -30,9 +30,6 @@ impl Vtx {
 struct FallibleRamifier;
 
 impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
-    /// Here, the `None` variant implies that rendering has failed.
-    type Key = Option<char>;
-
     /// We don't include any extra context if rendering fails.
     type Error = ();
 
@@ -58,7 +55,7 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
         }
     }
 
-    fn get_key(&self, vtx: &Option<&'t Vtx>) -> Self::Key {
+    fn get_key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
         vtx.map(|v| v.data)
     }
 

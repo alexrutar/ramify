@@ -35,13 +35,11 @@ impl Vtx {
 struct AnnotatingRamifier;
 
 impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
-    type Key = char;
-
     fn children(&mut self, vtx: &'t Vtx) -> impl IntoIterator<Item = &'t Vtx> {
         vtx.children.iter()
     }
 
-    fn get_key(&self, vtx: &&'t Vtx) -> Self::Key {
+    fn get_key(&self, vtx: &&'t Vtx) -> impl Ord {
         vtx.data
     }
 

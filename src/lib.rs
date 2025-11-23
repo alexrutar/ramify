@@ -50,11 +50,6 @@ pub use self::{
 ///
 /// Also see the [`Generator`] documentation for more information, particularly concerning [the sequence of method calls](Generator#method-call-guarantees) and [resource mangement](Generator#resource-management).
 pub trait Ramify<V> {
-    /// The key by which the vertices should be sorted.
-    ///
-    /// See [`Ramify::get_key`] for more detail.
-    type Key: Ord;
-
     /// Iterate over the children of the vertex.
     ///
     /// This method is called exactly once for each vertex immediately before writing the
@@ -104,7 +99,7 @@ pub trait Ramify<V> {
     /// In many standard use-cases, the children of a vertex are greater than the
     /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
     /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices vertices with an immediate parent already drawn to the diagram).
-    fn get_key(&self, vtx: &V) -> Self::Key;
+    fn get_key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     ///
@@ -209,8 +204,8 @@ impl<V, E: Default> From<V> for Replacement<V, E> {
 /// call to [`try_children`](TryRamify::try_children) always returning `Ok(_)`. In particular, you can use
 /// a [`Ramify`] implementation anywhere a [`TryRamify`] implementation is expected.
 pub trait TryRamify<V> {
-    /// The key by which the vertices should be sorted.
-    type Key: Ord;
+    // /// The key by which the vertices should be sorted.
+    // type Key<'a>: Ord;
 
     /// An error which may occur while trying to retrieve the children.
     type Error;
@@ -235,7 +230,7 @@ pub trait TryRamify<V> {
     ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>>;
 
     /// Get the key associated with a vertex.
-    fn get_key(&self, vtx: &V) -> Self::Key;
+    fn get_key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     fn marker(&self, vtx: &V) -> char;
@@ -248,7 +243,7 @@ pub trait TryRamify<V> {
 }
 
 impl<R: Ramify<V>, V> TryRamify<V> for R {
-    type Key = <Self as Ramify<V>>::Key;
+    // type Key = <Self as Ramify<V>>::Key;
 
     type Error = Infallible;
 
@@ -259,7 +254,7 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
         Ok(<Self as Ramify<V>>::children(self, vtx))
     }
 
-    fn get_key(&self, vtx: &V) -> Self::Key {
+    fn get_key(&self, vtx: &V) -> impl Ord {
         <Self as Ramify<V>>::get_key(self, vtx)
     }
 

@@ -56,8 +56,6 @@ pub struct RandomCascade {
 }
 
 impl Ramify<f64> for RandomCascade {
-    type Key = Key;
-
     fn children(&mut self, vtx: f64) -> impl IntoIterator<Item = f64> {
         // first, decide how many children we generate
         //
@@ -93,7 +91,7 @@ impl Ramify<f64> for RandomCascade {
         array
     }
 
-    fn get_key(&self, vtx: &f64) -> Self::Key {
+    fn get_key(&self, vtx: &f64) -> impl Ord {
         Key(*vtx)
     }
 
