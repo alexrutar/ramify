@@ -186,9 +186,12 @@ pub struct Replacement<V, E = ()> {
     pub err: E,
 }
 
-impl<V> From<V> for Replacement<V, ()> {
+impl<V, E: Default> From<V> for Replacement<V, E> {
     fn from(value: V) -> Self {
-        Self { value, err: () }
+        Self {
+            value,
+            err: E::default(),
+        }
     }
 }
 
