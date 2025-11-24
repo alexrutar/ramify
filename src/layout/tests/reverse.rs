@@ -56,7 +56,8 @@ fn assert_diag_impl<R: for<'t> Ramify<&'t Vtx<char>>, B: WriteBranch>(
 
     let mut cols = Generator::init(&root, ramifier, config);
 
-    let received = cols.branch_diagram(usize::MAX).unwrap();
+    let mut received = String::new();
+    while cols.write_vertex_str(&mut received) {}
 
     println!("Got tree:\n{received}\nReversed:");
     for line in received.lines().rev() {

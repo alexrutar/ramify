@@ -39,7 +39,7 @@ fn fallible_basic() {
     let mut writer: Vec<u8> = Vec::new();
     let mut cols = Generator::init(&tree, Ramifier, Config::with_rounded_corners());
 
-    assert!(cols.try_write_next_vertex(&mut writer).is_ok());
+    assert!(cols.try_write_vertex(&mut writer).is_ok());
     assert_tree(
         &writer,
         "\
@@ -48,8 +48,8 @@ fn fallible_basic() {
 ",
     );
 
-    assert!(cols.try_write_next_vertex(&mut writer).is_ok());
-    assert!(cols.try_write_next_vertex(&mut writer).is_err());
+    assert!(cols.try_write_vertex(&mut writer).is_ok());
+    assert!(cols.try_write_vertex(&mut writer).is_err());
     assert_tree(
         &writer,
         "\
@@ -58,7 +58,7 @@ fn fallible_basic() {
 │1├╮
 ",
     );
-    assert!(cols.try_write_next_vertex(&mut writer).is_ok());
+    assert!(cols.try_write_vertex(&mut writer).is_ok());
     assert_tree(
         &writer,
         "\
@@ -70,7 +70,7 @@ fn fallible_basic() {
 ││╭┼╮
 ",
     );
-    while cols.try_write_next_vertex(&mut writer).unwrap() {}
+    while cols.try_write_vertex(&mut writer).unwrap() {}
     assert_tree(
         &writer,
         "\

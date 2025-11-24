@@ -121,6 +121,6 @@ fn main() -> std::io::Result<()> {
     // modify these lines to try out some of the configuration options
     // generator.config_mut().row_padding = 1;
     // generator.config_mut().width_slack = true;
-    while generator.write_next_vertex(io::stdout().lock())? {}
+    while generator.write_vertex(io::stdout().lock())? {}
     Ok(())
 }

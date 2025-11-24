@@ -86,7 +86,8 @@ fn main() -> io::Result<()> {
 
     // we can't print line-by-line to standard out, since we need to know the entire
     // tree in order to print it backwards. instead we load the tree into a string buffer
-    let diag = generator.branch_diagram(usize::MAX).unwrap();
+    let mut diag = String::new();
+    while generator.write_vertex_str(&mut diag) {}
 
     // iterate over the lines in reverse, printing them
     let mut writer = io::stdout();

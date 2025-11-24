@@ -19,7 +19,7 @@ use self::columns::Columns;
 ///
 /// Once you have a [`Ramify`] impementation, initialize this struct with the [`init`](Self::init) method. After initializing, the branch
 /// diagram can be incrementally written to a [writer](io::Write) using the
-/// [`write_next_vertex`](Self::write_next_vertex) method. You can also use the
+/// [`write_vertex`](Self::write_vertex) method. You can also use the
 /// [`branch_diagram`](Self::branch_diagram) method as a convenience function to load the entire
 /// tree into memory.
 ///
@@ -34,7 +34,7 @@ use self::columns::Columns;
 /// branch diagram. The runtime configuration concerns configuration relevant to the layout algorithm.
 ///
 /// It is possible to modify configuration while writing the diagram (that is, in between calls to
-/// [`write_next_vertex`](Self::write_next_vertex)) by using the [`config_mut`](Self::config_mut)
+/// [`write_vertex`](Self::write_vertex)) by using the [`config_mut`](Self::config_mut)
 /// method. Any such modifications of the configuration are guaranteed to not
 /// corrupt the branch diagram.
 ///
@@ -44,7 +44,7 @@ use self::columns::Columns;
 ///
 /// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
 /// when rendering a row and its annotation (a single call to
-/// [`write_next_vertex`](Generator::write_next_vertex)).
+/// [`write_vertex`](Generator::write_vertex)).
 ///
 /// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
 /// - [`Ramify::annotation`] is called exactly once called to determine the annotation for the
@@ -93,7 +93,7 @@ use self::columns::Columns;
 /// assuming the various methods in [`Ramify`] take constant time.
 ///
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
-/// buffer is re-used between calls to [`write_next_vertex`](Self::write_next_vertex).
+/// buffer is re-used between calls to [`write_vertex`](Self::write_vertex).
 #[derive(Debug)]
 pub struct Generator<V, R, B = RoundedCorners> {
     columns: Columns<V, R, B>,
@@ -142,7 +142,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 }
 
-/// An error which can occur when calling [`Generator::try_write_next_vertex`].
+/// An error which can occur when calling [`Generator::try_write_vertex`].
 #[derive(Debug)]
 pub enum WriteVertexError<E> {
     /// An IO error was raised by the writer.
@@ -170,6 +170,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// and to set the generator state so that the subsequent call can immediately write
     /// a vertex.
     ///
+    /// # Valid Unicode
+    ///
+    /// This method will only write valid Unicode bytes into the writer. For example, writing into
+    /// a string buffer using [`String::as_mut_vec`] will not result in undefined behaviour. Also
+    /// see [`write_vertex_str`](Self::write_vertex_str).
     ///
     /// # Buffered writes
     ///
@@ -183,41 +188,27 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// In inverted mode, the vertex is written last rather than first, and
     /// the annotation lines are written in reverse order. This makes the annotations look correct
     /// if the tree is displayed with the root at the bottom.
-    pub fn write_next_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool>
+    pub fn write_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool>
     where
         R: Ramify<V>,
     {
-        self.try_write_next_vertex(writer).map_err(|e| match e {
+        self.try_write_vertex(writer).map_err(|e| match e {
             WriteVertexError::IO(error) => error,
             // the implementation of TryRamify if `R` is `Ramify` always succeeds
             WriteVertexError::TryChildrenFailed(_) => unreachable!(),
         })
     }
 
-    /// A convenience function to obtain the entire branch diagram as a string.
+    /// Write a row containing a vertex along with its annotation to the provided string buffer.
     ///
-    /// This is equivalent to repeatedly calling [`write_next_vertex`](Self::write_next_vertex)
-    /// with a `&mut Vec<u8>` buffer in a loop, and then converting the buffer to a string.
-    ///
-    /// # Maximum vertex count
-    ///
-    /// The `max_vertex_count` argument is the maximum number of vertices that will be written
-    /// before halting. This can be used to prevent the program from saturating memory in case of
-    /// an implementation error (for example, if the tree is in fact a graph containing a loop).
-    ///
-    /// If the maximum number of vertices is written and there are still remaining vertices, the partially generated diagram
-    /// is returned in the `Err(_)` variant. Generation can be resumed after if desired.
-    pub fn branch_diagram(&mut self, mut max_vertex_count: usize) -> Result<String, String>
+    /// This is identical to [`write_vertex`](Self::write_vertex), except there is no
+    /// error since writing will not fail (unless you run out of memory).
+    pub fn write_vertex_str(&mut self, buf: &mut String) -> bool
     where
         R: Ramify<V>,
     {
-        let mut buf: Vec<u8> = Vec::new();
-        while max_vertex_count > 0 && self.write_next_vertex(&mut buf).expect("Out of memory!") {
-            max_vertex_count -= 1;
-        }
-        // SAFETY: all writes are UTF-8
-        let diag = unsafe { String::from_utf8_unchecked(buf) };
-        if self.is_empty() { Ok(diag) } else { Err(diag) }
+        self.write_vertex(unsafe { buf.as_mut_vec() })
+            .expect("Out of memory!")
     }
 
     /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_children`]
@@ -234,7 +225,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     ///
     /// If the replacement vertex is still the minimal vertex, it is guaranteed that no writes will
     /// occur. This is the case if the original vertex is returned and [`TryRamify::get_key`] is a pure function.
-    pub fn try_write_next_vertex<W: io::Write>(
+    pub fn try_write_vertex<W: io::Write>(
         &mut self,
         writer: W,
     ) -> Result<bool, WriteVertexError<R::Error>>
@@ -242,14 +233,30 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         R: TryRamify<V>,
     {
         if B::INVERTED {
-            self.try_write_next_vertex_inverted(writer)
+            self.try_write_vertex_inverted(writer)
         } else {
             self.first = false;
-            self.try_write_next_vertex_normal(writer)
+            self.try_write_vertex_normal(writer)
         }
     }
 
-    fn try_write_next_vertex_normal<W: io::Write>(
+    /// Attempt to write the next vertex into the provided string buffer, failing to do so if the
+    /// call to [`TryRamify::try_children`] results in an error.
+    ///
+    /// This is identical to [`try_write_vertex`](Self::try_write_vertex), except there is no
+    /// IO error since writing will not fail (unless you run out of memory).
+    pub fn try_write_vertex_str(&mut self, buf: &mut String) -> Result<bool, R::Error>
+    where
+        R: TryRamify<V>,
+    {
+        self.try_write_vertex(unsafe { buf.as_mut_vec() })
+            .map_err(|e| match e {
+                WriteVertexError::IO(_) => panic!("Out of memory!"),
+                WriteVertexError::TryChildrenFailed(e) => e,
+            })
+    }
+
+    fn try_write_vertex_normal<W: io::Write>(
         &mut self,
         writer: W,
     ) -> Result<bool, WriteVertexError<R::Error>>
@@ -336,7 +343,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Instead of writing the vertex and then preparing for the next vertex to be written, we
     /// start by preparing for the vertex row to be written and then write it last. We also write
     /// the padding that follows the row if we can determine that there will be another row.
-    fn try_write_next_vertex_inverted<W: io::Write>(
+    fn try_write_vertex_inverted<W: io::Write>(
         &mut self,
         writer: W,
     ) -> Result<bool, WriteVertexError<R::Error>>

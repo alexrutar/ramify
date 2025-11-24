@@ -79,7 +79,7 @@ fn main() -> io::Result<()> {
 
     // repeatedly write to stdout until the tree is empty
     let mut writer = io::stdout();
-    while generator.write_next_vertex(&mut writer)? {}
+    while generator.write_vertex(&mut writer)? {}
 
     Ok(())
 }

@@ -98,7 +98,7 @@ fn main() -> io::Result<()> {
     // repeatedly write to stdout until the tree is empty
     let mut writer = io::stdout();
     loop {
-        match diag.try_write_next_vertex(&mut writer) {
+        match diag.try_write_vertex(&mut writer) {
             // rendering succeed
             Ok(true) => {}
             // no more elements in the tree
