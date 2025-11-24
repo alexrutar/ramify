@@ -132,10 +132,8 @@ pub trait Ramify<V> {
     /// An annotation to write alongside a vertex.
     ///
     /// This will be called exactly once per vertex.
-    ///
     /// The lines of the annotations are written sequentially, with the first line written on the
     /// same line as the vertex with which it is associated.
-    ///
     /// The default implementation does not write an annotation.
     ///
     /// # Implementation details
@@ -146,7 +144,7 @@ pub trait Ramify<V> {
     ///
     /// Like the standard library implementation of [`str::lines`](str#method.lines), the final
     /// trailing newline is optional and ignored if present. If you want extra space between
-    /// consecutive annotations, it is best to use the [`rowpadding`](Config::row_padding)
+    /// consecutive annotations, it is best to use the [`row_padding`](Config::row_padding)
     /// option of the [`Config`] struct.
     ///
     /// # Example
