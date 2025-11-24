@@ -3,16 +3,16 @@
 Ramify is a Rust library for generating *branch diagrams* to visualize hierarchical data.
 ```txt
 0       0         0    
-├╮      ├┬╮       ├┬╮  
-1├╮     │1├╮      │1│  
-│2│     ││2│      2│╰─╮
-│3│     │3││      │╰─╮│
-├╮│     │╭╯│      ├┬╮││
-4││     ││╭┼╮     │3│││
- 5│     │││4│     4╭╯││
-╭╯6     ││5╭╯      5╭╯│
-7       │6╭╯        6╭╯
-        7╭╯          7
+├┐      ├┬┐       ├┬┐  
+1├┐     │1├┐      │1│  
+│2│     ││2│      2│└─┐
+│3│     │3││      │└─┐│
+├┐│     │┌┘│      ├┬┐││
+4││     ││┌┼┐     │3│││
+ 5│     │││4│     4┌┘││
+┌┘6     ││5┌┘      5┌┘│
+7       │6┌┘        6┌┘
+        7┌┘          7
          8             
 ```
 See the [gallery](https://github.com/alexrutar/ramify#gallery) for more images.
@@ -40,20 +40,20 @@ Basic examples can be found in the [examples folder](https://github.com/alexruta
 Basic examples with no annotation and various node markers
 ```txt
  0        0             0         ◉
- ├┬╮      ├┬╮           ├┬╮       ├┬╮
- │1├╮     │1├┬╮         │1│       │✕│
- ││2│     │││2├┬╮       2│╰╮      │╭┼╮
- │3││     │││││3├╮      │╰╮│      ││◉├┬╮
- │╭╯│     │││││││4      ├╮││      ││││◉│
- ││╭┼╮    ││││5│││      3│││      │◉││││
- │││4│    ││6│╭╯││      ╭╯││      │ ✕│││
- ││5╭╯    ││ 7│╭╯│      │╭┤│      │╭─╯◉│
- │6╭╯     ││╭─╯│ 8      │4││      │◉ ╭╯│
- 7╭╯      │││  9╭╯      5╭╯│      ├╮╭╯╭╯
-  8       │││╭┬╯│        6╭┤      ✕││╭╯
-          ││││a╭╯         7│      ╭╯✕│
-          ││b│╭╯           8      ◉╭─╯
-          │c╭╯│                   │✕
+ ├┬┐      ├┬┐           ├┬┐       ├┬┐
+ │1├┐     │1├┬┐         │1│       │✕│
+ ││2│     │││2├┬┐       2│└┐      │┌┼┐
+ │3││     │││││3├┐      │└┐│      ││◉├┬┐
+ │┌┘│     │││││││4      ├┐││      ││││◉│
+ ││┌┼┐    ││││5│││      3│││      │◉││││
+ │││4│    ││6│┌┘││      ┌┘││      │ ✕│││
+ ││5┌┘    ││ 7│┌┘│      │┌┤│      │┌─┘◉│
+ │6┌┘     ││┌─┘│ 8      │4││      │◉ ┌┘│
+ 7┌┘      │││  9┌┘      5┌┘│      ├┐┌┘┌┘
+  8       │││┌┬┘│        6┌┤      ✕││┌┘
+          ││││a┌┘         7│      ┌┘✕│
+          ││b│┌┘           8      ◉┌─┘
+          │c┌┘│                   │✕
           │││ d                   ◉
           ││e
           │f
@@ -62,60 +62,60 @@ Basic examples with no annotation and various node markers
 The first example above, with annotations associated with some vertices.
 ```txt
 0
-├┬╮
-│1├╮ An annotation
+├┬┐
+│1├┐ An annotation
 ││││ with two lines
 ││2│
 │3││  Another annotation
-│╭╯│
-││╭┼╮
+│┌┘│
+││┌┼┐
 │││4│ An annotation
-│││╭╯ split over
+│││┌┘ split over
 ││││  three lines
 ││5│
-│6╭╯
-7╭╯
+│6┌┘
+7┌┘
  8
 ```
 The same example, but with extra padding after the annotation and with 'width slack' to decrease the height at the cost of making the tree wider.
 ```txt
 0
-├┬╮
+├┬┐
 │1│   An annotation
-││├╮  with two lines
+││├┐  with two lines
 ││││
 ││2│
 ││││
-│3│╰╮  Another annotation
-│╭╯╭┼╮
-││╭╯4│ An annotation
-│││╭─╯ split over
+│3│└┐  Another annotation
+│┌┘┌┼┐
+││┌┘4│ An annotation
+│││┌─┘ split over
 ││││   three lines
 ││││
 ││5│
-││╭╯
+││┌┘
 │6│
-│╭╯
+│┌┘
 7│
-╭╯
+┌┘
 8
 ```
 The same example, but with no extra padding and inverted.
 ```
  8
-7╰╮
-│6╰╮
-││5╰╮
+7└┐
+│6└┐
+││5└┐
 │││4│ An annotation
 │││││ split over
 │││││ three lines
-││╰┼╯
-│╰╮│
+││└┼┘
+│└┐│
 │3││ Another annotation
 ││2│
-││├╯
+││├┘
 │1│ An annotation
 │││ with two lines
-├┴╯
+├┴┘
 0
 ```

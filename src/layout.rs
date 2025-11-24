@@ -95,7 +95,7 @@ use self::columns::Columns;
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
 /// buffer is re-used between calls to [`write_vertex`](Self::write_vertex).
 #[derive(Debug)]
-pub struct Generator<V, R, B = RoundedCorners> {
+pub struct Generator<V, R, B> {
     columns: Columns<V, R, B>,
     min_index: Option<usize>, // None iff columns.is_empty()
     annotation_buf: String,

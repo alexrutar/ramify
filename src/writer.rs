@@ -14,7 +14,11 @@
 //! ## Style gallery
 //! Here is a gallery of the default line styles. Here are the links:
 //!
-//! > [`RoundedCorners`]; [`SharpCorners`]; [`RoundedCornersWide`]; [`SharpCornersWide`]; [`DoubledLines`]
+//! - [`RoundedCorners`]
+//! - [`SharpCorners`]
+//! - [`RoundedCornersWide`]
+//! - [`SharpCornersWide`]
+//! - [`DoubledLines`]
 //!
 //! ```txt
 //! rounded  sharp    rounded     sharp       doubled
@@ -64,7 +68,7 @@ use std::{fmt, io, marker::PhantomData};
 /// is 0, this is the the same as the character width. In general, if the width is `n`, the
 /// resulting number of characters is `(gutter_width + 1) * n`.
 #[derive(Debug, Clone)]
-pub struct Config<B = RoundedCorners> {
+pub struct Config<B> {
     /// Extra padding before each vertex. The padding applies after the annotation, or after the
     /// vertex if there is no annotation. This is the number of characters. The default is `0`.
     pub row_padding: usize,
@@ -255,7 +259,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///
 /// Implementing this trait yourself is rather annoying and should only be done in exceptional
 /// situations. Usually, you just want to use a built-in implementation, such as the
-/// recommended [`RoundedCorners`] style, or another style chosen from an implementation in the
+/// [`RoundedCorners`] style, or another style chosen from an implementation in the
 /// [writer](self) module. If this is unsatisfactory, see the [`branch_writer`] macro. If this is
 /// still unsatisfactory, read on!
 ///
@@ -429,6 +433,7 @@ branch_writer!(
     ///     }
     /// }
     /// ```
+    /// Compared to [`SharpCorners`], font support for the rounded corner symbols may be less widespread.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCorners {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
@@ -507,6 +512,7 @@ branch_writer!(
     ///     }
     /// }
     /// ```
+    /// Compared to [`SharpCornersWide`], font support for the rounded corner symbols may be less widespread.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCornersWide {
         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
