@@ -158,6 +158,18 @@ impl<E> From<io::Error> for WriteVertexError<E> {
     }
 }
 
+impl<E: std::fmt::Display> std::fmt::Display for WriteVertexError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error occurred while writing vertex: ")?;
+        match self {
+            Self::IO(error) => error.fmt(f),
+            Self::TryChildrenFailed(error) => error.fmt(f),
+        }
+    }
+}
+
+impl<E: std::error::Error> std::error::Error for WriteVertexError<E> {}
+
 impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// Write a row containing a vertex along with its annotation to the provided writer.
     ///
