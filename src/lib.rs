@@ -85,7 +85,7 @@ pub trait Ramify<V> {
     ///
     /// The active vertices are passed to [`Iterator::min_by_key`] when deciding which vertex
     /// should be rendered next on each iteration. In particular, the first element is returned if
-    /// several elements are equally minimum.
+    /// several elements are equally minimal.
     ///
     /// The key is used ephemerally for sorting purposes and is not stored within the branch
     /// diagram. In particular, this method could be called many times for a given vertex.
@@ -98,7 +98,7 @@ pub trait Ramify<V> {
     ///
     /// In many standard use-cases, the children of a vertex are greater than the
     /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
-    /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices vertices with an immediate parent already drawn to the diagram).
+    /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices with an immediate parent already drawn to the diagram).
     fn get_key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
