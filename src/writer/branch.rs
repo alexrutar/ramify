@@ -116,8 +116,8 @@ impl Branch {
 ///
 /// An optional `inverted` field can be set to true, which will cause annotations to be written in
 /// reverse order, with the vertex marker being written on the last row of annotation.
-/// This makes the annotations look correct if the tree is printed in reverse order down.
-/// Doing this also requires inverting the caracter set, as shown in the below example.
+/// This makes the annotations look correct if the lines of the branch diagram are printed in
+/// reverse order. Doing this also requires inverting the caracter set, as shown in the below example.
 /// ```
 /// use ramify::writer::branch_writer;
 ///
