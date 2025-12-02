@@ -19,9 +19,7 @@ use self::columns::Columns;
 ///
 /// Once you have a [`Ramify`] impementation, initialize this struct with the [`init`](Self::init) method. After initializing, the branch
 /// diagram can be incrementally written to a [writer](io::Write) using the
-/// [`write_vertex`](Self::write_vertex) method. You can also use the
-/// [`branch_diagram`](Self::branch_diagram) method as a convenience function to load the entire
-/// tree into memory.
+/// [`write_vertex`](Self::write_vertex) method.
 ///
 /// The documentation here is mostly relevant for using the [`Generator`]. The layout algorithm
 /// is documented in the [`writer` module](crate::writer#layout-algorithm-documentation).
