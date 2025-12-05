@@ -54,20 +54,30 @@ impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
 
 fn main() -> io::Result<()> {
     // construct the tree
-    let tree = {
-        let v8 = Vtx::leaf('8');
-        let v7 = Vtx::leaf('7');
-        let v6 = Vtx::leaf('6');
-        let v5 = Vtx::leaf('5');
-        let mut v4 = Vtx::leaf('4');
-        v4.annotation = "An annotation\nsplit over\nthree lines";
-        let mut v3 = Vtx::leaf('3');
-        v3.annotation = "Another annotation";
-        let v2 = Vtx::inner('2', vec![v6]);
-        let mut v1 = Vtx::inner('1', vec![v3]);
-        v1.annotation = "An annotation\nwith two lines";
+    // let tree = {
+    //     let v8 = Vtx::leaf('8');
+    //     let v7 = Vtx::leaf('7');
+    //     let v6 = Vtx::leaf('6');
+    //     let v5 = Vtx::leaf('5');
+    //     let mut v4 = Vtx::leaf('4');
+    //     v4.annotation = "An annotation\nsplit over\nthree lines";
+    //     let mut v3 = Vtx::leaf('3');
+    //     v3.annotation = "Another annotation";
+    //     let v2 = Vtx::inner('2', vec![v6]);
+    //     let mut v1 = Vtx::inner('1', vec![v3]);
+    //     v1.annotation = "An annotation\nwith two lines";
 
-        Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    //     Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    // };
+    let tree = {
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::leaf('3');
+        let mut v2 = Vtx::leaf('2');
+        v2.annotation = "Another annotation\nspread over\nthree lines";
+        let mut v1 = Vtx::inner('1', vec![v4, v2]);
+        v1.annotation = "An annotation\nspread over\nthree lines";
+        let v0 = Vtx::inner('0', vec![v1, v3]);
+        v0
     };
 
     let mut config = Config::with_rounded_corners();

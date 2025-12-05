@@ -180,7 +180,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
         writer: &mut DiagramWriter<W, B>,
         diagram_width: usize,
     ) -> io::Result<()> {
-        ops::fork_align::<_, _, _, true>(writer, &mut self.columns, idx, ..diagram_width)?;
+        ops::fork_align(writer, &mut self.columns, idx, ..diagram_width)?;
         writer.write_newline()?;
 
         Ok(())
@@ -252,12 +252,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
         // prepare space for the next vertex, but don't fork until necessary
         if let Some(mut prev_line) = lines.next() {
             for line in lines {
-                ops::fork_align::<_, _, _, false>(
-                    writer,
-                    &mut self.columns,
-                    prepare_idx,
-                    ..diagram_width,
-                )?;
+                ops::fork_align(writer, &mut self.columns, prepare_idx, ..diagram_width)?;
                 writer.write_annotation_line(
                     prev_line,
                     annotation_alignment,
@@ -267,12 +262,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
                 prev_line = line;
             }
 
-            ops::fork_align::<_, _, _, true>(
-                writer,
-                &mut self.columns,
-                prepare_idx,
-                ..diagram_width,
-            )?;
+            ops::fork_align(writer, &mut self.columns, prepare_idx, ..diagram_width)?;
             writer.write_annotation_line(
                 prev_line,
                 annotation_alignment,
@@ -289,7 +279,6 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
         next_min_idx: usize,
         l: usize,
         r: usize,
-        delay_fork: bool,
         col: usize,
         marker_char: char,
         diagram_width: usize,
@@ -297,21 +286,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
         if next_min_idx < l {
             // the next minimal index lands before the marker
 
-            let mut offset = if delay_fork {
-                ops::fork_align::<_, _, _, false>(
-                    writer,
-                    &mut self.columns[..l],
-                    next_min_idx,
-                    ..col,
-                )?
-            } else {
-                ops::fork_align::<_, _, _, true>(
-                    writer,
-                    &mut self.columns[..l],
-                    next_min_idx,
-                    ..col,
-                )?
-            };
+            let mut offset = ops::fork_align(writer, &mut self.columns[..l], next_min_idx, ..col)?;
 
             let (actual, next_offset) = ops::marker(writer, marker_char, offset, col)?;
             offset = next_offset;
@@ -341,21 +316,12 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             offset = next_offset;
             if r < self.columns.len() {
                 writer.queue_blank(offset.min(self.columns[r].1) - actual);
-                if delay_fork {
-                    ops::fork_align::<_, _, _, false>(
-                        writer,
-                        &mut self.columns[r..],
-                        next_min_idx - r,
-                        offset..diagram_width,
-                    )?;
-                } else {
-                    ops::fork_align::<_, _, _, true>(
-                        writer,
-                        &mut self.columns[r..],
-                        next_min_idx - r,
-                        offset..diagram_width,
-                    )?;
-                }
+                ops::fork_align(
+                    writer,
+                    &mut self.columns[r..],
+                    next_min_idx - r,
+                    offset..diagram_width,
+                )?;
             }
         };
         Ok(())

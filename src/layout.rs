@@ -312,7 +312,6 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
         // data used to render the remaining rows
         let diagram_width = self.columns.diagram_width(next_min_idx);
-        let delay_fork = self.config().row_padding > 0;
 
         // write the vertex row
         self.columns.write_vertex_row(
@@ -320,7 +319,6 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
             next_min_idx,
             l,
             r,
-            delay_fork,
             col,
             marker_char,
             diagram_width,
@@ -443,7 +441,6 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                             next_min_idx,
                             l,
                             r,
-                            false,
                             col,
                             marker_char,
                             diagram_width,
@@ -484,7 +481,6 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                             next_min_idx,
                             l,
                             r,
-                            false,
                             col,
                             marker_char,
                             diagram_width,
