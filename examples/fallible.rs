@@ -33,7 +33,7 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
     /// We don't include any extra context if rendering fails.
     type Error = ();
 
-    fn try_children(
+    fn try_ramify(
         &mut self,
         vtx: Option<&'t Vtx>,
     ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Replacement<Option<&'t Vtx>, Self::Error>>
@@ -55,7 +55,7 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
         }
     }
 
-    fn get_key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
+    fn key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
         vtx.map(|v| v.data)
     }
 

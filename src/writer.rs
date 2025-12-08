@@ -257,8 +257,9 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// A special writer that a [`Generator`](crate::Generator) uses to write the characters used in
 /// the branch diagram.
 ///
-/// Implementing this trait yourself is rather annoying and should only be done in exceptional
-/// situations. Usually, you just want to use a built-in implementation, such as the
+/// Implementing this trait yourself is rather annoying and should only be done in
+/// situations when you want very precise control over the branch diagram output.
+/// Usually, you just want to use a built-in implementation, such as the
 /// [`RoundedCorners`] style, or another style chosen from an implementation in the
 /// [writer](self) module. If this is unsatisfactory, see the [`branch_writer`] macro. If this is
 /// still unsatisfactory, read on!
@@ -428,7 +429,7 @@ branch_writer!(
     /// branch_writer! {
     ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct RoundedCorners {
-    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┴", "┼"],
     ///         gutter_width: 0,
     ///     }
     /// }
@@ -436,7 +437,7 @@ branch_writer!(
     /// Compared to [`SharpCorners`], font support for the rounded corner symbols may be less widespread.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCorners {
-        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┴", "┼"],
         gutter_width: 0,
     }
 );
@@ -468,14 +469,14 @@ branch_writer!(
     /// branch_writer! {
     ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct SharpCorners {
-    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┴", "┼"],
     ///         gutter_width: 0,
     ///     }
     /// }
     /// ```
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct SharpCorners {
-        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┴", "┼"],
         gutter_width: 0,
     }
 );
@@ -507,7 +508,7 @@ branch_writer!(
     /// branch_writer! {
     ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct RoundedCornersWide {
-    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+    ///         charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┴", "┼"],
     ///         gutter_width: 1,
     ///     }
     /// }
@@ -515,7 +516,7 @@ branch_writer!(
     /// Compared to [`SharpCornersWide`], font support for the rounded corner symbols may be less widespread.
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct RoundedCornersWide {
-        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┼"],
+        charset: ["│", "─", "╮", "╭", "╯", "╰", "┤", "├", "┬", "┴", "┼"],
         gutter_width: 1,
     }
 );
@@ -547,14 +548,14 @@ branch_writer!(
     /// branch_writer! {
     ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct SharpCornersWide {
-    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+    ///         charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┴", "┼"],
     ///         gutter_width: 1,
     ///     }
     /// }
     /// ```
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct SharpCornersWide {
-        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┼"],
+        charset: ["│", "─", "┐", "┌", "┘", "└", "┤", "├", "┬", "┴", "┼"],
         gutter_width: 1,
     }
 );
@@ -586,14 +587,14 @@ branch_writer!(
     /// branch_writer! {
     ///     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     ///     pub struct DoubledLines {
-    ///         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
+    ///         charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╩", "╬"],
     ///         gutter_width: 1,
     ///     }
     /// }
     /// ```
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub struct DoubledLines {
-        charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╬"],
+        charset: ["║", "═", "╗", "╔", "╝", "╚", "╣", "╠", "╦", "╩", "╬"],
         gutter_width: 1,
     }
 );

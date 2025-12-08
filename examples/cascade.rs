@@ -56,7 +56,7 @@ pub struct RandomCascade {
 }
 
 impl Ramify<f64> for RandomCascade {
-    fn children(&mut self, vtx: f64) -> impl IntoIterator<Item = f64> {
+    fn ramify(&mut self, vtx: f64) -> impl IntoIterator<Item = f64> {
         // first, decide how many children we generate
         //
         // > if the number is small and we haven't hit the limit, we 'expand'
@@ -91,7 +91,7 @@ impl Ramify<f64> for RandomCascade {
         array
     }
 
-    fn get_key(&self, vtx: &f64) -> impl Ord {
+    fn key(&self, vtx: &f64) -> impl Ord {
         Key(*vtx)
     }
 
@@ -99,7 +99,7 @@ impl Ramify<f64> for RandomCascade {
         '◊'
     }
 
-    fn annotation<B: std::fmt::Write>(&self, vtx: &f64, mut buf: B) -> std::fmt::Result {
+    fn annotate<B: std::fmt::Write>(&self, vtx: &f64, mut buf: B) -> std::fmt::Result {
         if self.show_weight {
             write!(buf, "{vtx}")
         } else {

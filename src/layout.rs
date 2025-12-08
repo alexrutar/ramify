@@ -45,14 +45,14 @@ use self::columns::Columns;
 /// [`write_vertex`](Generator::write_vertex)).
 ///
 /// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
-/// - [`Ramify::annotation`] is called exactly once called to determine the annotation for the
+/// - [`Ramify::annotate`] is called exactly once called to determine the annotation for the
 ///   minimal vertex.
-/// - [`Ramify::children`] is called exactly once to replace the current minimal vertex with its
+/// - [`Ramify::ramify`] is called exactly once to replace the current minimal vertex with its
 ///   children
-/// - [`Ramify::get_key`] is called once for every active vertex every time a new vertex is
+/// - [`Ramify::key`] is called once for every active vertex every time a new vertex is
 ///   generated.
 ///
-/// Moreover, the call to [`Ramify::children`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
+/// Moreover, the call to [`Ramify::ramify`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
 /// The other methods only take a reference to the vertex rather than receive the vertex itself.
 ///
 /// Otherwise, the relative order between these calls, and moreover the order relative to writes, is unspecified.
@@ -72,12 +72,20 @@ use self::columns::Columns;
 ///
 /// Internally, the generator maintains a list of *active vertices*: the vertices not yet drawn to
 /// the diagram, but for which a parent has already been drawn to the diagram. Once a vertex has
-/// been drawn to the diagram, it is passed to [`Ramify::children`] or [`TryRamify::try_children`],
+/// been drawn to the diagram, it is passed to [`Ramify::ramify`] or [`TryRamify::try_ramify`],
 /// which takes ownership of `V`.
 ///
-/// A generator will *never* drop a vertex while it is running. Therefore all of the resource
-/// management takes place in the [`Ramify`] or [`TryRamify`] implementation. If you drop a
+/// A generator will *never* silently drop a vertex while it is running. Therefore all of the resource
+/// management takes place in the [`Ramify`] or [`TryRamify`] implementation. This occurs in two
+/// places:
+///
+/// - When computing the children of a vertex, ownership
+/// - If the vertex
+///
+/// If you drop a
 /// generator, the list of active vertices will be de-allocated. You can recover the list of active vertices using [`into_active_vertices`](Self::into_active_vertices).
+///
+/// If [`Ramify::should_merge`] returns true, the vertex `other` will be dropped.
 ///
 /// ### Runtime and memory complexity
 ///
@@ -221,7 +229,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
             .expect("Out of memory!")
     }
 
-    /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_children`]
+    /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_ramify`]
     /// results in an error.
     ///
     /// The error is propagated in the [`WriteVertexError`] and can be used
@@ -234,7 +242,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// succeeds.
     ///
     /// If the replacement vertex is still the minimal vertex, it is guaranteed that no writes will
-    /// occur. This is the case if the original vertex is returned and [`TryRamify::get_key`] is a pure function.
+    /// occur. This is the case if the original vertex is returned and [`TryRamify::key`] is a pure function.
     pub fn try_write_vertex<W: io::Write>(
         &mut self,
         writer: W,
@@ -251,7 +259,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 
     /// Attempt to write the next vertex into the provided string buffer, failing to do so if the
-    /// call to [`TryRamify::try_children`] results in an error.
+    /// call to [`TryRamify::try_ramify`] results in an error.
     ///
     /// This is identical to [`try_write_vertex`](Self::try_write_vertex), except there is no
     /// IO error since writing will not fail (unless you run out of memory).

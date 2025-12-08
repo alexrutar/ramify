@@ -7,7 +7,7 @@ struct Ramifier;
 impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
     type Error = ();
 
-    fn try_children(
+    fn try_ramify(
         &mut self,
         vtx: &'t Vtx<char>,
     ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, Replacement<&'t Vtx<char>>> {
@@ -18,7 +18,7 @@ impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
         }
     }
 
-    fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+    fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
         vtx.data
     }
 

@@ -34,11 +34,11 @@ impl Vtx {
 struct AnnotatingRamifier;
 
 impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
-    fn children(&mut self, vtx: &'t Vtx) -> impl IntoIterator<Item = &'t Vtx> {
+    fn ramify(&mut self, vtx: &'t Vtx) -> impl IntoIterator<Item = &'t Vtx> {
         vtx.children.iter()
     }
 
-    fn get_key(&self, vtx: &&'t Vtx) -> impl Ord {
+    fn key(&self, vtx: &&'t Vtx) -> impl Ord {
         vtx.data
     }
 
@@ -46,7 +46,7 @@ impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
         vtx.data
     }
 
-    fn annotation<B: std::fmt::Write>(&self, vtx: &&'t Vtx, mut buf: B) -> std::fmt::Result {
+    fn annotate<B: std::fmt::Write>(&self, vtx: &&'t Vtx, mut buf: B) -> std::fmt::Result {
         buf.write_str(&vtx.annotation)
     }
 }
@@ -73,7 +73,7 @@ fn main() -> io::Result<()> {
     // from bottom-up
     branch_writer! {
         pub struct InvertedStyle {
-            charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┼"],
+            charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
             gutter_width: 0,
             inverted: true,
         }

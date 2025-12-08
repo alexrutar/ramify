@@ -60,7 +60,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
     /// Compute the annotation, storing it in the provided buffer.
     pub fn buffer_annotation(&mut self, idx: usize, buf: &mut String) {
         self.ramifier
-            .annotation(&self.columns[idx].0, buf)
+            .annotate(&self.columns[idx].0, buf)
             .expect("Writing to a `String` should not fail.");
     }
 
@@ -75,7 +75,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             let (vtx, col) = self.columns.pop().unwrap();
 
             // determine the data associated with the element
-            let maybe_children = self.ramifier.try_children(vtx);
+            let maybe_children = self.ramifier.try_ramify(vtx);
 
             // FIXME: annoying workaround to deal with borrow checker
             if maybe_children.is_err() {
@@ -96,7 +96,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
             // temporarily swap the minimal element with the last element
             let (vtx, col) = self.columns.swap_remove(min_idx);
 
-            let maybe_children = self.ramifier.try_children(vtx);
+            let maybe_children = self.ramifier.try_ramify(vtx);
 
             // FIXME: annoying workaround to deal with borrow checker
             if maybe_children.is_err() {
@@ -144,7 +144,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
         self.columns
             .iter()
             .enumerate()
-            .min_by_key(|(_, (e, _))| self.ramifier.get_key(e))
+            .min_by_key(|(_, (e, _))| self.ramifier.key(e))
             .map(|(a, _)| a)
     }
 

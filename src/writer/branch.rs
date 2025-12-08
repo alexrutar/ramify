@@ -46,16 +46,38 @@ pub enum Branch {
     /// The field is the number of extra horizontal spacers. For example,
     /// `ForkTripleShiftRight(1)` is `╰─┬┬╮`.
     ForkTripleShiftRight(usize),
+    /// A `╯` left merge starter.
+    MergeLeft,
+    /// A `┴` central merge joiner.
+    MergeCenter,
+    /// A `╰` right merge starter.
+    MergeRight,
+    /// A `┤` left merge split.
+    SplitLeft,
+    /// A `┼` central merge split.
+    SplitCenter,
+    /// A `├` right merge split.
+    SplitRight,
+    /// A `─` merge traverse.
+    Traverse,
 }
 
 impl Branch {
     /// The number of characters that a [`Branch`] occupies in the branch diagram with a given
-    /// gutter width. The implementation is guaranteed to be exactly as follows:
+    /// gutter width. The implementation is exactly as follows:
     /// ```
     /// use ramify::writer::Branch;
     /// fn width(b: &Branch, gutter_width: usize) -> usize {
     ///     let base_width = match b {
-    ///         Branch::Marker(_) | Branch::Continue => 1,
+    ///          Branch::Continue
+    ///          | Branch::Marker(_)
+    ///          | Branch::MergeLeft
+    ///          | Branch::MergeCenter
+    ///          | Branch::MergeRight
+    ///          | Branch::SplitLeft
+    ///          | Branch::SplitCenter
+    ///          | Branch::SplitRight
+    ///          | Branch::Traverse => 1,
     ///         Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 2 + shift,
     ///         Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 2,
     ///         Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => 3 + shift,
@@ -68,13 +90,25 @@ impl Branch {
     /// # assert_eq!(b.width(1), 31);
     /// # assert_eq!(width(&b, 1), 31);
     /// ```
-    pub fn width(&self, gutter_width: usize) -> usize {
+    pub const fn width(&self, gutter_width: usize) -> usize {
         let base_width = match self {
-            Branch::Continue | Branch::Marker(_) => 1,
-            Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => 2 + shift,
+            Branch::Continue
+            | Branch::Marker(_)
+            | Branch::MergeLeft
+            | Branch::MergeCenter
+            | Branch::MergeRight
+            | Branch::SplitLeft
+            | Branch::SplitCenter
+            | Branch::SplitRight
+            | Branch::Traverse => 1,
+            Branch::ShiftLeft(shift) | Branch::ShiftRight(shift) => shift.wrapping_add(2),
             Branch::ForkDoubleLeft | Branch::ForkDoubleRight => 2,
-            Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => 3 + shift,
-            Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => 4 + shift,
+            Branch::ForkDoubleShiftLeft(shift) | Branch::ForkDoubleShiftRight(shift) => {
+                shift.wrapping_add(3)
+            }
+            Branch::ForkTripleShiftLeft(shift) | Branch::ForkTripleShiftRight(shift) => {
+                shift.wrapping_add(4)
+            }
             Branch::ForkTripleLeft | Branch::ForkTripleMiddle | Branch::ForkTripleRight => 3,
         };
         base_width + (base_width - 1) * gutter_width
@@ -95,7 +129,7 @@ impl Branch {
 ///     /// A style which mixes rounded corners and sharp corners, with a lot of
 ///     /// internal whitespace.
 ///     pub(crate) struct MixedCornersExtraWide {
-///         charset: ["│", "─", "┐", "┌", "╯", "╰", "┤", "├", "┬", "┼"],
+///         charset: ["│", "─", "┐", "┌", "╯", "╰", "┤", "├", "┬", "┴", "┼"],
 ///         gutter_width: 2, // {Rounded/Sharp}CornersWide uses `gutter_width = 1`
 ///     }
 /// );
@@ -124,8 +158,8 @@ impl Branch {
 /// branch_writer!(
 ///     /// An inverted style.
 ///     struct Inverted {
-///         charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┼"],
-///         // inverted chars:   ^    ^     ^    ^              ^
+///         charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
+///         // inverted chars:   ^    ^     ^    ^              ^    ^
 ///         gutter_width: 0,
 ///         inverted: true,
 ///     }
@@ -138,7 +172,7 @@ macro_rules! branch_writer {
     (
         $(#[$outer:meta])*
         $vis:vis struct $name:ident {
-            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
+            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $new:literal, $nsew:literal$(,)?],
             gutter_width: $gutter_width:expr,
             inverted: $inverted:expr$(,)?
         }
@@ -161,17 +195,17 @@ macro_rules! branch_writer {
                     }
                     $crate::writer::Branch::ShiftLeft(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $ew, ">shift$}", $nw),
+                            ::std::concat!("{:>ws$}", $se, "{:", $ew, ">shift$}", $nw),
                             "",
                             "",
                             ws = ws,
                             shift = ($gutter_width + 1) * shift + $gutter_width
                         ))
                     }
-                    $crate::writer::Branch::Continue => f(::std::format_args!(concat!("{:>ws$}", $ns), "", ws = ws)),
+                    $crate::writer::Branch::Continue => f(::std::format_args!(::std::concat!("{:>ws$}", $ns), "", ws = ws)),
                     $crate::writer::Branch::ShiftRight(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sw),
+                            ::std::concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sw),
                             "",
                             "",
                             ws = ws,
@@ -181,7 +215,7 @@ macro_rules! branch_writer {
 
                     $crate::writer::Branch::ForkDoubleShiftLeft(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}" , $sew, "{:", $ew, ">shift$}", $nw),
+                            ::std::concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}" , $sew, "{:", $ew, ">shift$}", $nw),
                             "",
                             "",
                             "",
@@ -192,7 +226,7 @@ macro_rules! branch_writer {
                     }
                     $crate::writer::Branch::ForkDoubleLeft => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}", $nsw),
+                            ::std::concat!("{:>ws$}", $se, "{:", $ew, ">gutter$}", $nsw),
                             "",
                             "",
                             gutter = $gutter_width,
@@ -201,7 +235,7 @@ macro_rules! branch_writer {
                     }
                     $crate::writer::Branch::ForkDoubleRight => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $nse, "{:", $ew, ">gutter$}", $sw),
+                            ::std::concat!("{:>ws$}", $nse, "{:", $ew, ">gutter$}", $sw),
                             "",
                             "",
                             gutter = $gutter_width,
@@ -210,7 +244,7 @@ macro_rules! branch_writer {
                     }
                     $crate::writer::Branch::ForkDoubleShiftRight(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $nw, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutter$}", $sw),
+                            ::std::concat!("{:>ws$}", $nw, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutter$}", $sw),
                             "",
                             "",
                             "",
@@ -222,7 +256,7 @@ macro_rules! branch_writer {
 
                     $crate::writer::Branch::ForkTripleShiftLeft(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sew, "{:", $ew, ">shift$}", $nw),
+                            ::std::concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sew, "{:", $ew, ">shift$}", $nw),
                             "",
                             "",
                             "",
@@ -235,7 +269,7 @@ macro_rules! branch_writer {
                     }
                     $crate::writer::Branch::ForkTripleLeft => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $nsw),
+                            ::std::concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $nsw),
                             "",
                             "",
                             "",
@@ -245,14 +279,14 @@ macro_rules! branch_writer {
                         ))
                     }
                     $crate::writer::Branch::ForkTripleMiddle => {
-                        f(::std::format_args!(concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $nsew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
+                        f(::std::format_args!(::std::concat!("{:>ws$}", $se, "{:", $ew, ">gutterl$}", $nsew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
                     }
                     $crate::writer::Branch::ForkTripleRight => {
-                        f(::std::format_args!(concat!("{:>ws$}", $nse, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
+                        f(::std::format_args!(::std::concat!("{:>ws$}", $nse, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw), "", "", "", gutterl = $gutter_width, gutterr = $gutter_width, ws = ws))
                     }
                     $crate::writer::Branch::ForkTripleShiftRight(shift) => {
                         f(::std::format_args!(
-                            concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw),
+                            ::std::concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}", $sew, "{:", $ew, ">gutterl$}", $sew, "{:", $ew, ">gutterr$}", $sw),
                             "",
                             "",
                             "",
@@ -263,6 +297,13 @@ macro_rules! branch_writer {
                             shift = ($gutter_width + 1) * shift + $gutter_width
                         ))
                     }
+                    $crate::writer::Branch::MergeLeft => f(::std::format_args!(::std::concat!("{:>ws$}", $ew), "", ws = ws)),
+                    $crate::writer::Branch::MergeCenter => f(::std::format_args!(::std::concat!("{:>ws$}", $new), "", ws = ws)),
+                    $crate::writer::Branch::MergeRight => f(::std::format_args!(::std::concat!("{:>ws$}", $ne), "", ws = ws)),
+                    $crate::writer::Branch::SplitLeft => f(::std::format_args!(::std::concat!("{:>ws$}", $nsw), "", ws = ws)),
+                    $crate::writer::Branch::SplitCenter => f(::std::format_args!(::std::concat!("{:>ws$}", $nsew), "", ws = ws)),
+                    $crate::writer::Branch::SplitRight => f(::std::format_args!(::std::concat!("{:>ws$}", $nse), "", ws = ws)),
+                    $crate::writer::Branch::Traverse => f(::std::format_args!(::std::concat!("{:>ws$}", $ew), "", ws = ws)),
                 }
             }
         }
@@ -270,18 +311,38 @@ macro_rules! branch_writer {
     (
         $(#[$outer:meta])*
         $vis:vis struct $name:ident {
-            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
+            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $new:literal, $nsew:literal$(,)?],
             gutter_width: $gutter_width:expr$(,)?
         }
     ) => {
         $crate::writer::branch_writer! {
             $(#[$outer])*
             $vis struct $name {
-                charset: [$ns, $ew, $sw, $se, $nw, $ne, $nsw, $nse, $sew, $nsew],
+                charset: [$ns, $ew, $sw, $se, $nw, $ne, $nsw, $nse, $sew, $new, $nsew],
                 gutter_width: $gutter_width,
                 inverted: false,
             }
         }
+    };
+    // FIXME: remove this some time later
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident {
+            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
+            gutter_width: $gutter_width:expr,
+            inverted: $inverted:expr$(,)?
+        }
+    ) => {
+        compile_error!("This macro has been changed to require an extra '┴' character in the second last position, before '┼'.");
+    };
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $name:ident {
+            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $new:literal, $nsew:literal$(,)?],
+            gutter_width: $gutter_width:expr$(,)?
+        }
+    ) => {
+        compile_error!("This macro has been changed to require an extra '┴' character in the second last position, before '┼'.");
     };
 }
 
