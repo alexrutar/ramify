@@ -5,11 +5,11 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
     struct AnnotatingRamifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for AnnotatingRamifier {
-        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
+        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -17,7 +17,7 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
+        fn annotate<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
             write!(buf, "#")
         }
     }
@@ -30,7 +30,7 @@ fn branch_macro() {
     branch_writer!(
         /// A weird style
         struct MyStyle {
-            charset: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+            charset: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"],
             gutter_width: 3,
         }
     );

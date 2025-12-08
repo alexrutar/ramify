@@ -4,11 +4,11 @@ fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
     struct Ramifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
+        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -16,7 +16,7 @@ fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
+        fn annotate<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
             buf.write_str(">0\n>1\n>2")
         }
     }
@@ -279,11 +279,11 @@ fn final_annotation_alignment() {
     struct Ramifier;
 
     impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn children(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
+        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
             vtx.children.iter()
         }
 
-        fn get_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -291,7 +291,7 @@ fn final_annotation_alignment() {
             vtx.data
         }
 
-        fn annotation<B: fmt::Write>(&self, vtx: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
+        fn annotate<B: fmt::Write>(&self, vtx: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
             if vtx.data == '8' {
                 buf.write_str(">0\n>1\n>2")?;
             }

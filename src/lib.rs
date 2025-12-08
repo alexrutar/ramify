@@ -75,13 +75,13 @@ pub trait Ramify<V> {
     /// ```
     /// Iterating in sorted order (either increasing or decreasing) or otherwise guaranteeing that
     /// the minimal element is first or last tends to produce narrower trees since this avoids 3-way forks.
-    fn children(&mut self, vtx: V) -> impl IntoIterator<Item = V>;
+    fn ramify(&mut self, vtx: V) -> impl IntoIterator<Item = V>;
 
     /// Get the key associated with a vertex.
     ///
     /// This key is used for the *vertical* render order; that is, to decide which vertex should be
     /// rendered next. This is different than the iteration order of the children. See
-    /// the documentation for [`Ramify::children`] to compare.
+    /// the documentation for [`Ramify::ramify`] to compare.
     ///
     /// The active vertices are passed to [`Iterator::min_by_key`] when deciding which vertex
     /// should be rendered next on each iteration. In particular, the first element is returned if
@@ -99,7 +99,7 @@ pub trait Ramify<V> {
     /// In many standard use-cases, the children of a vertex are greater than the
     /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
     /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices with an immediate parent already drawn to the diagram).
-    fn get_key(&self, vtx: &V) -> impl Ord;
+    fn key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     ///
@@ -161,15 +161,48 @@ pub trait Ramify<V> {
     ///  3  The annotation for vertex 2 is empty.
     /// ```
     #[allow(unused)]
-    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+    #[inline]
+    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
         Ok(())
+    }
+
+    /// Return if two vertices are identical and should be merged.
+    ///
+    /// The first argument is the current minimal vertex and the second argument is a different active
+    /// vertex. This method is called once for other active vertex immediately before the minimal
+    /// vertex is rendered.
+    ///
+    /// The default implementation always returns `false`, so vertices will never be merged.
+    /// Vertices which are merged will be passed to [`terminate`](Ramify::terminate).
+    ///
+    /// # Difference from `key`
+    ///
+    /// Unlike [`key`](Ramify::key), this method should check that the
+    /// vertices are exactly the same. What this means depends on the vertex type, but
+    /// this might look like [`Rc::ptr_eq`](std::rc::Rc::ptr_eq), or like comparison of a `usize`
+    /// index for flattened graph-like structures.
+    #[allow(unused)]
+    #[inline]
+    fn should_merge(&self, vtx: &V, other: &V) -> bool {
+        false
+    }
+
+    /// Clean up a merged vertex.
+    ///
+    /// If `should_merge` method returns `true`, the `other` vertex will be removed from the
+    /// list of active vertices. When it is removed, it is passed to this method.
+    ///
+    /// The default implementation drops the vertex.
+    #[inline]
+    fn terminate(&self, vtx: V) {
+        drop(vtx);
     }
 }
 
 /// A replacement vertex returned when a ramifier fails to determine the children associated with
 /// a vertex.
 ///
-/// This struct is used as the error variant returned by [`TryRamify::try_children`]. See those
+/// This struct is used as the error variant returned by [`TryRamify::try_ramify`]. See those
 /// docs for more detail.
 #[derive(Debug)]
 pub struct Replacement<V, E = ()> {
@@ -190,8 +223,8 @@ impl<V, E: Default> From<V> for Replacement<V, E> {
 
 /// Try to iterate over the children of the vertex.
 ///
-/// This is a fallible version of [`Ramify`] where the call to [`Ramify::children`] might fail.
-/// This trait instead has a method [`TryRamify::try_children`], which can either return a list of
+/// This is a fallible version of [`Ramify`] where the call to [`Ramify::ramify`] might fail.
+/// This trait instead has a method [`TryRamify::try_ramify`], which can either return a list of
 /// children, or fail and return a replacement vertex.
 ///
 /// The [`Ramify`] docs contain much more detail. Here, we only document the differences.
@@ -199,7 +232,7 @@ impl<V, E: Default> From<V> for Replacement<V, E> {
 /// ### Blanket implementation
 ///
 /// There is a blanket implementation of `TryRamify<V>` whenever a type is `Ramify<V>` with the
-/// call to [`try_children`](TryRamify::try_children) always returning `Ok(_)`. In particular, you can use
+/// call to [`try_children`](TryRamify::try_ramify) always returning `Ok(_)`. In particular, you can use
 /// a [`Ramify`] implementation anywhere a [`TryRamify`] implementation is expected.
 pub trait TryRamify<V> {
     // /// The key by which the vertices should be sorted.
@@ -222,45 +255,64 @@ pub trait TryRamify<V> {
     ///
     /// Since the vertex returned on an error might change, the marker and annotation associated
     /// with the original vertex will be discarded and re-computed in the next attempt.
-    fn try_children(
+    fn try_ramify(
         &mut self,
         vtx: V,
     ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>>;
 
     /// Get the key associated with a vertex.
-    fn get_key(&self, vtx: &V) -> impl Ord;
+    fn key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     fn marker(&self, vtx: &V) -> char;
 
     /// An annotation to write alongside a vertex.
     #[allow(unused)]
-    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
         Ok(())
+    }
+
+    /// Determine if two vertices are identical and should be merged.
+    #[allow(unused)]
+    #[inline]
+    fn should_merge(&self, vtx: &V, other: &V) -> bool {
+        false
+    }
+
+    /// Clean up a merged vertex.
+    #[inline]
+    fn terminate(&self, vtx: V) {
+        drop(vtx);
     }
 }
 
 impl<R: Ramify<V>, V> TryRamify<V> for R {
-    // type Key = <Self as Ramify<V>>::Key;
-
     type Error = Infallible;
 
-    fn try_children(
+    fn try_ramify(
         &mut self,
         vtx: V,
     ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>> {
-        Ok(<Self as Ramify<V>>::children(self, vtx))
+        Ok(<Self as Ramify<V>>::ramify(self, vtx))
     }
 
-    fn get_key(&self, vtx: &V) -> impl Ord {
-        <Self as Ramify<V>>::get_key(self, vtx)
+    fn key(&self, vtx: &V) -> impl Ord {
+        <Self as Ramify<V>>::key(self, vtx)
     }
 
     fn marker(&self, vtx: &V) -> char {
         <Self as Ramify<V>>::marker(self, vtx)
     }
 
-    fn annotation<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
-        <Self as Ramify<V>>::annotation(self, vtx, buf)
+    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+        <Self as Ramify<V>>::annotate(self, vtx, buf)
+    }
+
+    fn should_merge(&self, vtx: &V, other: &V) -> bool {
+        <Self as Ramify<V>>::should_merge(self, vtx, other)
+    }
+
+    fn terminate(&self, vtx: V) {
+        <Self as Ramify<V>>::terminate(self, vtx)
     }
 }

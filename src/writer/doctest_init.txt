@@ -20,10 +20,10 @@
 # }
 # struct Ramifier;
 # impl<'t> Ramify<&'t Vertex<char>> for Ramifier {
-#     fn children(&mut self, vtx: &'t Vertex<char>) -> impl IntoIterator<Item = &'t Vertex<char>> {
+#     fn ramify(&mut self, vtx: &'t Vertex<char>) -> impl IntoIterator<Item = &'t Vertex<char>> {
 #         vtx.children.iter()
 #     }
-#     fn get_key(&self, vtx: &&'t Vertex<char>) -> impl Ord {
+#     fn key(&self, vtx: &&'t Vertex<char>) -> impl Ord {
 #         vtx.data
 #     }
 #     fn marker(&self, vtx: &&'t Vertex<char>) -> char {
