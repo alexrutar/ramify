@@ -46,6 +46,10 @@ impl<V, R, B> Columns<V, R, B> {
     pub fn is_empty(&self) -> bool {
         self.columns.is_empty()
     }
+
+    pub fn shrink_to_fit(&mut self) {
+        self.columns.shrink_to_fit();
+    }
 }
 
 impl<V, R: TryRamify<V>, B: WriteBranch> Columns<V, R, B> {
