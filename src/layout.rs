@@ -579,6 +579,12 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     pub fn into_active_vertices(self) -> impl ExactSizeIterator<Item = V> {
         self.columns.into_active_vertices()
     }
+
+    /// Shrink the capacity of internal allocations as much as possible.
+    pub fn shrink_to_fit(&mut self) {
+        self.annotation_buf.shrink_to_fit();
+        self.columns.shrink_to_fit();
+    }
 }
 
 impl<V, R> Generator<V, R, RoundedCorners> {
