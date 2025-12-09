@@ -34,6 +34,7 @@
 
 #![deny(missing_docs)]
 
+pub(crate) mod columns;
 mod layout;
 pub mod writer;
 
@@ -235,26 +236,18 @@ impl<V, E: Default> From<V> for Replacement<V, E> {
 /// call to [`try_children`](TryRamify::try_ramify) always returning `Ok(_)`. In particular, you can use
 /// a [`Ramify`] implementation anywhere a [`TryRamify`] implementation is expected.
 pub trait TryRamify<V> {
-    // /// The key by which the vertices should be sorted.
-    // type Key<'a>: Ord;
-
     /// An error which may occur while trying to retrieve the children.
     type Error;
 
     /// Try to iterate over the children of the vertex.
     ///
     /// If a vertex is not ready to be iterated, a replacement must be specified in the `Err(_)`
-    /// variant.
+    /// variant. The replacement vertex **will be used as the new minimal vertex**, regardless of
+    /// its order relative to the other vertices.
     ///
-    /// 1. If the same vertex is returned, this operation is idempotent. In other words, failing to
-    ///    write a vertex any number of times, followed by a success, is identical to succeeding on
-    ///    the first try.
-    /// 2. If a different vertex is returned, the new minimal index is used instead. The next
-    ///    vertex will not be written, but some writes may occur in order to prepare writing the
-    ///    new vertex.
-    ///
-    /// Since the vertex returned on an error might change, the marker and annotation associated
-    /// with the original vertex will be discarded and re-computed in the next attempt.
+    /// In particular, failing to iterate will not result in any writes. Since the vertex returned
+    /// on an error might change, the marker and annotation associated with the original vertex
+    /// will be discarded and re-computed in the next attempt.
     fn try_ramify(
         &mut self,
         vtx: V,

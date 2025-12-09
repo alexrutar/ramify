@@ -74,14 +74,15 @@ pub struct Config<B> {
     pub row_padding: usize,
     /// The margin between the annotation and the branch diagram. This is the number of characters. The default is `1`.
     pub annotation_margin: usize,
-    /// Whether or not to allow extra an extra column of width slack which can result in slightly
-    /// shorter branch diagrams. This is at the cost of pushing the annotation to the right
-    /// unnecessarily by the gutter width if the extra slack is not used. The default is `false`.
-    pub width_slack: bool,
     /// The minimum width of the diagram. Annotations will never begin earlier than this.
     /// Margin requested in `margin_left` is added to of this parameter. This is the number of
     /// gutters. The default value is `0`.
     pub min_diagram_width: usize,
+    /// Whether or not to wait until the diagram is as compact as possible. If `false`, the diagram will be
+    /// somewhat shorter, at the cost of introducing additional internal whitespace. This can be
+    /// especially pronounced when writing in inverted mode with no padding. The default is
+    /// `false`.
+    pub lazy: bool,
     branch_writer: PhantomData<B>,
 }
 
@@ -94,7 +95,7 @@ impl<B> Default for Config<B> {
 impl<B> Config<B> {
     /// Initialize using default values.
     ///
-    /// Calling this method requires type annotations.
+    /// Calling this method requires type annotations to specify the style.
     /// Also see the convenience methods:
     ///
     /// - [`with_rounded_corners`](Self::with_rounded_corners)
@@ -106,15 +107,10 @@ impl<B> Config<B> {
         Self {
             row_padding: 0,
             annotation_margin: 1,
-            width_slack: false,
             min_diagram_width: 0,
+            lazy: false,
             branch_writer: PhantomData,
         }
-    }
-
-    pub(crate) fn normalize_diagram_width(&self, width: usize) -> usize {
-        let slack: usize = self.width_slack.into();
-        (width + slack).max(self.min_diagram_width)
     }
 }
 
@@ -171,7 +167,7 @@ impl Config<DoubledLines> {
 pub(crate) struct DiagramWriter<W, B> {
     /// Configuration used when drawing the branch diagram.
     writer: W,
-    line_width: usize,
+    non_empty: bool,
     queued_whitespace: usize,
     marker: PhantomData<B>,
 }
@@ -181,26 +177,17 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     pub fn new(writer: W) -> Self {
         Self {
             writer,
-            line_width: 0,
+            non_empty: false,
             queued_whitespace: 0,
             marker: PhantomData,
         }
     }
 
-    /// Returns the number of characters written since the last line break.
-    pub(crate) fn line_char_count(&self) -> usize {
-        self.line_width
-    }
-
     #[inline]
-    fn resolve_whitespace(&mut self, branch_width: usize) -> usize {
-        let extra_ws = if self.line_width == 0 {
-            0
-        } else {
-            B::GUTTER_WIDTH
-        };
+    fn resolve_whitespace(&mut self) -> usize {
+        // let extra_ws = if self.start { 0 } else { B::GUTTER_WIDTH };
+        let extra_ws = B::GUTTER_WIDTH * (self.non_empty as usize);
         let ws = extra_ws + (1 + B::GUTTER_WIDTH) * self.queued_whitespace;
-        self.line_width += branch_width + ws;
 
         self.queued_whitespace = 0;
         ws
@@ -209,48 +196,54 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     /// Write a [`Branch`].
     #[inline]
     pub(crate) fn write_branch(&mut self, b: Branch) -> io::Result<()> {
-        let ws = self.resolve_whitespace(self.branch_width(&b));
+        let ws = self.resolve_whitespace();
+        self.non_empty = true;
 
         B::write_branch(|args| self.writer.write_fmt(args), ws, b)
     }
 
+    #[inline]
     pub(crate) fn queue_blank(&mut self, n: usize) {
         self.queued_whitespace += n;
+    }
+
+    fn to_width(gutters: usize) -> usize {
+        // This is
+        //   (B::GUTTER_WIDTH + 1) * gutters - B::GUTTER_WIDTH
+        // except not panicking if `gutters = 0`
+        let mask = (gutters != 0) as usize;
+        ((B::GUTTER_WIDTH + 1) * gutters).wrapping_sub(B::GUTTER_WIDTH) * mask
+    }
+
+    #[inline]
+    pub(crate) fn write_annotation(
+        &mut self,
+        line: impl fmt::Display,
+        row_state: &crate::layout::RowState,
+    ) -> io::Result<()> {
+        let (margin, alignment, width) = row_state.alignment();
+        let alignment = Self::to_width(alignment);
+
+        let width = Self::to_width(width);
+
+        writeln!(
+            &mut self.writer,
+            "{:>padding$}{line}",
+            "",
+            padding = margin + alignment - width
+        )?;
+
+        self.non_empty = false;
+
+        Ok(())
     }
 
     /// Write a newline.
     #[inline]
     pub(crate) fn write_newline(&mut self) -> io::Result<()> {
-        self.line_width = 0;
+        self.non_empty = false;
         self.queued_whitespace = 0;
         writeln!(&mut self.writer)
-    }
-
-    /// Write a single line of annotation, followed by a newline.
-    ///
-    /// The caller must guarantee the provided line does not contain any newlines.
-    #[inline]
-    pub(crate) fn write_annotation_line(
-        &mut self,
-        line: impl fmt::Display,
-        bound: usize,
-        padding: usize,
-    ) -> io::Result<()> {
-        self.queued_whitespace = 0;
-        writeln!(
-            &mut self.writer,
-            "{:>align$}{:>padding$}{line}",
-            "",
-            "",
-            align = bound.saturating_sub(self.line_width),
-            padding = padding,
-        )?;
-        self.line_width = 0;
-        Ok(())
-    }
-
-    fn branch_width(&self, b: &Branch) -> usize {
-        b.width(B::GUTTER_WIDTH)
     }
 }
 
@@ -291,8 +284,8 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// writer. These requests take the form of [`Branch`]es, which represent the components used in the diagram. The branch writer satisfies a request in the [`write_branch`](WriteBranch::write_branch) function.
 ///
 /// For performance reasons, instead of working directly with a [writer](io::Write), the
-/// implementation is requested to generate a format template which can be immediately passed to a
-/// closure for writing.
+/// implementation is requested to generate a format template which is immediately passed to a
+/// closure for writing. Since the closure is mutable, multiple calls can be made if necessary.
 ///
 /// ### Basic example
 ///
@@ -306,20 +299,29 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// impl WriteBranch for MyCustomStyle {
 ///     const GUTTER_WIDTH: usize = 0;
 ///
-///     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
+///     fn write_branch<F>(mut f: F, ws: usize, b: Branch) -> io::Result<()>
 ///     where
-///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
+///         F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()> {
 ///         match b {
-///             Branch::ForkDoubleShiftLeft(shift) => {
-///                 f(format_args!("{:>ws$}╭┬{:─>shift$}╯",
+///             Branch::ShiftForkLeft(shift, fork) => {
+///                 f(format_args!("{:>ws$}╭{:┬>fork$}{:─>shift$}╯",
+///                     "",
 ///                     "",
 ///                     "",
 ///                     ws = ws,
+///                     fork = fork,
 ///                     shift = shift
 ///                 ))
 ///             }
 ///             _ => todo!(),
 ///         }
+///     }
+///
+///     fn write_traverse<F>(mut f: F, count: usize) -> ::std::io::Result<()>
+///     where
+///         F: for<'a> FnMut(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
+///     {
+///         f(format_args!("{:─>tr$}", "", tr = count))
 ///     }
 /// }
 /// ```
@@ -350,7 +352,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// ```
 /// The branch writer is only responsible for writing the number of characters internal to the [`Branch`]
 /// that it is writing. The correct number of preceding spaces is passed in the `ws` parameter.
-/// For example, if `GUTTER_WIDTH = 0`, a [`Branch::ForkDoubleShiftLeft`] with field `1` is written
+/// For example, if `GUTTER_WIDTH = 0`, a [`Branch::ShiftForkLeft`] with fields `1` and `1` is written
 /// like `╭┬─╯`. However, if `GUTTER_WIDTH = 1`, then it is written like `╭─┬───╯`.
 ///
 /// The exact number of expected characters is documented in [`Branch::width`].
@@ -368,20 +370,31 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// impl WriteBranch for MyCustomStyle {
 ///     const GUTTER_WIDTH: usize = 2;
 ///
-///     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
+///     fn write_branch<F>(mut f: F, ws: usize, b: Branch) -> io::Result<()>
 ///     where
-///         F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()> {
+///         F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()> {
 ///         match b {
-///             Branch::ForkDoubleShiftLeft(shift) => {
-///                 f(format_args!("{:>ws$}╭──┬{:─>shift$}╯",
+///             Branch::ShiftForkLeft(shift, fork) => {
+///                 f(format_args!("{:>ws$}╭", "", ws = ws,))?;
+///
+///                 for _ in 0..fork {
+///                     f(format_args!("──┬"))?;
+///                 }
+///                 // do all of the shifts in a single batch with a bit of arithmetic
+///                 f(format_args!("{:─>shift$}╯",
 ///                     "",
-///                     "",
-///                     ws = ws,
 ///                     shift = 3 * shift + 2
 ///                 ))
 ///             }
 ///             _ => todo!(),
 ///         }
+///     }
+///
+///     fn write_traverse<F>(mut f: F, mut count: usize) -> ::std::io::Result<()>
+///     where
+///         F: for<'a> FnMut(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
+///     {
+///         f(format_args!("{:─>tr$}", "", tr = 3 * count + 2))
 ///     }
 /// }
 /// ```
@@ -394,12 +407,36 @@ pub trait WriteBranch {
 
     /// Write a single branch to the provided writer, prefixed by `ws` whitespace characters.
     ///
-    /// In order to optimize writes, the writer `f` only accepts an [`Arguments`](fmt::Arguments)
-    /// struct, which must be generated by using the [`format_args!`] macro. Repetition and other
-    /// runtime-only operations must be handled with [formatting paramters](std::fmt#formatting-parameters).
+    /// The writer `f` only accepts an [`Arguments`](fmt::Arguments) struct, which must be
+    /// generated by using the [`format_args!`] macro. Repetition and other runtime-only
+    /// operations can either be handled with [formatting paramters](std::fmt#formatting-parameters)
+    /// or by using multiple calls to the formatting function.
     fn write_branch<F>(f: F, ws: usize, b: Branch) -> io::Result<()>
     where
-        F: for<'a> FnOnce(fmt::Arguments<'a>) -> io::Result<()>;
+        F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()>;
+
+    /// Write a traversing horizontal line which crosses other lines without intersecting.
+    ///
+    /// The count is the number of lines that are crossed. A gutter should also be written on the
+    /// left and the right of each crossed line. If the count is 0, a single gutter should be
+    /// written.
+    ///
+    /// # Examples
+    ///
+    /// If the gutter width is 1, a reasonable choice would be the following:
+    ///
+    /// - `count = 0`: `─`
+    /// - `count = 1`: `─│─`
+    /// - `count = 2`: `─│─│─`
+    ///
+    /// The traverse can also pass 'over' the vertical lines:
+    ///
+    /// - `count = 0`: `─`
+    /// - `count = 1`: `───`
+    /// - `count = 2`: `─────`
+    fn write_traverse<F>(f: F, count: usize) -> io::Result<()>
+    where
+        F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()>;
 }
 
 branch_writer!(
