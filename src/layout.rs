@@ -1,19 +1,19 @@
-mod columns;
-mod ops;
+pub(crate) mod ops;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::io;
 
 use crate::{
     Config, Ramify, TryRamify,
     writer::{
-        Branch, DiagramWriter, DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners,
+        DiagramWriter, DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners,
         SharpCornersWide, WriteBranch,
     },
 };
 
-use self::columns::Columns;
+use crate::columns::Columns;
+pub(crate) use crate::columns::RowState;
 
 /// A generator which incrementally writes the branch diagram to a writer.
 ///
@@ -103,10 +103,9 @@ use self::columns::Columns;
 #[derive(Debug)]
 pub struct Generator<V, R, B> {
     columns: Columns<V, R, B>,
-    min_index: Option<usize>, // None iff columns.is_empty()
     annotation_buf: String,
-    // a special bit of state needed to handle 'inverted' mode correctly
-    first: bool,
+    // for inverted mode, we need to store the row state across the call boundary
+    prev: Option<RowState>,
 }
 
 impl<V, R, B: WriteBranch> Generator<V, R, B> {
@@ -115,9 +114,8 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     pub fn init(root: V, ramifier: R, config: Config<B>) -> Self {
         Self {
             columns: Columns::init(root, ramifier, config),
-            min_index: Some(0),
             annotation_buf: String::new(),
-            first: true,
+            prev: None,
         }
     }
 
@@ -253,7 +251,6 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         if B::INVERTED {
             self.try_write_vertex_inverted(writer)
         } else {
-            self.first = false;
             self.try_write_vertex_normal(writer)
         }
     }
@@ -281,7 +278,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     where
         R: TryRamify<V>,
     {
-        let Some(min_idx) = self.min_index else {
+        let Some(min_idx) = self.columns.minimal() else {
             return Ok(false);
         };
 
@@ -294,64 +291,52 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         self.annotation_buf.clear();
         self.columns
             .buffer_annotation(min_idx, &mut self.annotation_buf);
-        let (l, r) =
-            Self::sub_and_update_min(&mut self.columns, &mut self.min_index, min_idx, &mut writer)?;
+        self.columns
+            .substitute(min_idx)
+            .map_err(WriteVertexError::TryChildrenFailed)?;
 
-        // either get the next minimal index, or write the final line and annotation and return
-        let Some(next_min_idx) = self.min_index else {
-            let (_, offset) = ops::marker(&mut writer, marker_char, 0, col)?;
-            let diagram_width = self.config().normalize_diagram_width(offset);
-            let annotation_alignment = (B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH;
+        // write the vertex row and get the diagram width
+        let mut state = self.columns.write_shimmed_row(
+            &mut writer,
+            ops::Fork,
+            (col, ops::Marker(marker_char)),
+        )?;
 
-            // write the annotation lines
-            if self.annotation_buf.is_empty() {
-                writer.write_newline()?;
-            } else {
-                for line in self.annotation_buf.lines() {
-                    self.columns
-                        .write_annotation_line(&mut writer, line, annotation_alignment)?;
+        // compute the annotation alignment based on the gutter width
+
+        let mut lines = self.annotation_buf.lines();
+
+        // finish the vertex row and then write the annotation lines
+        match lines.next() {
+            Some(first_line) => {
+                writer.write_annotation(first_line, &state)?;
+
+                // write the remaining annotation lines
+                for line in lines {
+                    state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                    writer.write_annotation(line, &state)?;
                 }
             }
+            None => writer.write_newline()?,
+        }
 
-            // don't write padding
-
-            return Ok(false);
-        };
-
-        // data used to render the remaining rows
-        let diagram_width = self.columns.diagram_width(next_min_idx);
-
-        // write the vertex row
-        self.columns.write_vertex_row(
-            &mut writer,
-            next_min_idx,
-            l,
-            r,
-            col,
-            marker_char,
-            diagram_width,
-        )?;
-
-        // compute the annotation alignment based on how large the vertex row is
-        let annotation_alignment =
-            ((B::GUTTER_WIDTH + 1) * diagram_width - B::GUTTER_WIDTH).max(writer.line_char_count());
-
-        self.columns.write_trailing_annotation(
-            self.annotation_buf.lines(),
-            &mut writer,
-            next_min_idx,
-            diagram_width,
-            annotation_alignment,
-        )?;
-
-        // finally, prepare for the next row by repeatedly calling
-        // `fork_align` until the index is a singleton, writing at least
-        // enough rows to get the desired padding
-        let padding = self.config().row_padding;
-        self.columns
-            .make_singleton(next_min_idx, &mut writer, diagram_width, padding)?;
-
-        Ok(true)
+        // prepare for the next row, writing at least enough rows to get the desired
+        // padding (except on the last row)
+        if self.columns.is_empty() {
+            Ok(false)
+        } else {
+            let mut padding = self.config().row_padding;
+            while padding > 0 {
+                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                writer.write_newline()?;
+                padding -= 1;
+            }
+            while !state.is_ready() {
+                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                writer.write_newline()?;
+            }
+            Ok(true)
+        }
     }
 
     /// Try to write the next vertex in 'inverted' mode.
@@ -366,56 +351,28 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     where
         R: TryRamify<V>,
     {
-        let Some(min_idx) = self.min_index else {
+        let Some(min_idx) = self.columns.minimal() else {
             return Ok(false);
         };
 
-        let diagram_width = self.columns.diagram_width(min_idx);
         let mut writer = DiagramWriter::<W, B>::new(writer);
+        let mut state = self.prev.unwrap_or(self.columns.initial_state());
 
-        // hard-code the root vertex to not print lines underneath it
-        if self.first {
-            self.first = false;
-
-            // get all of the data for the minimal vertex
-            let marker_char = self.columns.marker_char(min_idx);
-            self.annotation_buf.clear();
-            self.columns
-                .buffer_annotation(min_idx, &mut self.annotation_buf);
-
-            // write the annotation lines and the marker
-            let mut lines = self.annotation_buf.lines();
-            let maybe_last_line = lines.next();
-            match maybe_last_line {
-                Some(last_line) => {
-                    for line in lines.rev() {
-                        self.columns.write_annotation_line(&mut writer, line, 1)?;
-                    }
-                    ops::marker(&mut writer, marker_char, 0, 0)?;
-                    self.columns
-                        .write_annotation_line(&mut writer, last_line, 1)?;
-                }
-                None => {
-                    ops::marker(&mut writer, marker_char, 0, 0)?;
-                    writer.write_newline()?;
-                }
+        // write the padding and prepare for the next vertex (unless this is the first row)
+        if self.prev.is_some() {
+            let mut padding = self.config().row_padding;
+            while padding > 0 {
+                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                writer.write_newline()?;
+                padding -= 1;
             }
-
-            // substitute the vertex and return
-            Self::sub_and_update_min(&mut self.columns, &mut self.min_index, min_idx, &mut writer)?;
-            return Ok(self.min_index.is_some());
-        }
-
-        // write the padding, and also preparing for next vertex with updated diagram width
-        for _ in 0..self.config().row_padding {
-            self.columns
-                .try_make_singleton(min_idx, &mut writer, diagram_width)?;
         }
 
         // make the minimal index a singleton so that the vertex row can be written.
-        // TODO: can we predict how long it will take to make a singleton? probably hard
-        self.columns
-            .make_singleton(min_idx, &mut writer, diagram_width, 0)?;
+        while !state.is_ready() {
+            state |= self.columns.write_row(&mut writer, ops::Fork)?;
+            writer.write_newline()?;
+        }
 
         // get all of the data for the minimal vertex
         let marker_char = self.columns.marker_char(min_idx);
@@ -423,9 +380,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         self.columns
             .buffer_annotation(min_idx, &mut self.annotation_buf);
 
-        // write annotation lines, with the vertex on the last line
+        // Write annotation lines, with the vertex on the last line.
         let mut lines = self.annotation_buf.lines();
         let maybe_last_line = lines.next();
+
+        // compute the annotation alignment based on the gutter width
 
         match maybe_last_line {
             None => {
@@ -433,111 +392,45 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
                 // substitute and update minimal index
                 let col = self.columns.col(min_idx);
-                let (l, r) = Self::sub_and_update_min(
-                    &mut self.columns,
-                    &mut self.min_index,
-                    min_idx,
+                self.columns
+                    .substitute(min_idx)
+                    .map_err(WriteVertexError::TryChildrenFailed)?;
+                let state = self.columns.write_shimmed_row(
                     &mut writer,
+                    ops::Fork,
+                    (col, ops::Marker(marker_char)),
                 )?;
+                self.prev = Some(state);
 
-                match self.min_index {
-                    Some(next_min_idx) => {
-                        // the next min index exists, so we write the vertex row and prepare for
-                        // the next write
-                        self.columns.write_vertex_row(
-                            &mut writer,
-                            next_min_idx,
-                            l,
-                            r,
-                            col,
-                            marker_char,
-                            diagram_width,
-                        )?;
-                        writer.write_newline()?;
-                        Ok(true)
-                    }
-                    None => {
-                        // no more vertices, so we just write the marker row
-                        writer.queue_blank(col);
-                        writer.write_branch(Branch::Marker(marker_char))?;
-                        writer.write_newline()?;
-                        Ok(false)
-                    }
-                }
+                writer.write_newline()?;
+                Ok(!self.columns.is_empty())
             }
             Some(last_line) => {
                 // write all of the preceding annotation lines
-                let maybe_alignment = self
-                    .columns
-                    .write_preceding_annotation(lines.rev(), &mut writer)?;
+                for line in lines.rev() {
+                    if self.prev.is_some() {
+                        state |= self.columns.write_row(&mut writer, ops::Preserve)?;
+                    }
+                    writer.write_annotation(line, &state)?;
+                }
 
                 // substitute and update minimal index
                 let col = self.columns.col(min_idx);
-                let (l, r) = Self::sub_and_update_min(
-                    &mut self.columns,
-                    &mut self.min_index,
-                    min_idx,
+
+                self.columns
+                    .substitute(min_idx)
+                    .map_err(WriteVertexError::TryChildrenFailed)?;
+                // write the last line
+                let new_state = self.columns.write_shimmed_row(
                     &mut writer,
+                    ops::Preserve,
+                    (col, ops::Marker(marker_char)),
                 )?;
+                state |= new_state;
+                writer.write_annotation(last_line, &state)?;
 
-                match self.min_index {
-                    Some(next_min_idx) => {
-                        // the next min index exists, so we write the vertex row and prepare for
-                        // the next write
-                        self.columns.write_vertex_row(
-                            &mut writer,
-                            next_min_idx,
-                            l,
-                            r,
-                            col,
-                            marker_char,
-                            diagram_width,
-                        )?;
-                        let alignment = maybe_alignment.unwrap_or(writer.line_char_count());
-                        self.columns
-                            .write_annotation_line(&mut writer, last_line, alignment)?;
-
-                        Ok(true)
-                    }
-                    None => {
-                        // no more vertices, so we just write the marker row
-                        writer.queue_blank(col);
-                        writer.write_branch(Branch::Marker(marker_char))?;
-                        let alignment = maybe_alignment.unwrap_or(col + 1);
-                        self.columns
-                            .write_annotation_line(&mut writer, last_line, alignment)?;
-                        Ok(false)
-                    }
-                }
-            }
-        }
-    }
-
-    fn sub_and_update_min<W: io::Write>(
-        self_columns: &mut Columns<V, R, B>,
-        self_min_index: &mut Option<usize>,
-        min_idx: usize,
-        writer: &mut DiagramWriter<W, B>,
-    ) -> Result<(usize, usize), WriteVertexError<R::Error>>
-    where
-        R: TryRamify<V>,
-    {
-        // substitute and update minimal index
-        match self_columns.substitute(min_idx) {
-            Ok((l, r)) => {
-                *self_min_index = self_columns.min_index();
-                Ok((l, r))
-            }
-            Err(e) => {
-                // recompute the min index
-                let new_min_idx = self_columns.min_index().unwrap();
-
-                *self_min_index = Some(new_min_idx);
-
-                // prepare to write the vertex next iteration
-                let diagram_width = self_columns.diagram_width(new_min_idx);
-                self_columns.make_singleton(new_min_idx, writer, diagram_width, 0)?;
-                Err(WriteVertexError::TryChildrenFailed(e))
+                self.prev = Some(new_state);
+                Ok(!self.columns.is_empty())
             }
         }
     }

@@ -1,427 +1,228 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    io,
-    ops::{Range, RangeFrom, RangeFull, RangeTo},
+use std::io;
+
+use crate::{
+    columns::{Alignment, Apply, ColumnIndexIter, Gap, Shim},
+    writer::{Branch, DiagramWriter, WriteBranch},
 };
 
-use crate::writer::{Branch, DiagramWriter, WriteBranch};
+/// Compact much as possible, ignoring minimal indices.
+#[allow(unused)]
+#[derive(Debug, Clone, Copy)]
+pub struct Compact;
 
-/// A half-open [`usize`] range; essentially, one of `..`, `a..`, `..b`, or `a..b`.
-pub trait HalfOpen {
-    /// The inclusive start index.
-    fn start(&self) -> usize;
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Compact {
+    type Error = io::Error;
 
-    /// The end index, or `None` of unbounded.
-    fn end(&self) -> Option<usize>;
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        _minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<false, _, _, _>(state, align, span, [], Branch::Continue)
+    }
 }
 
-impl HalfOpen for RangeFull {
-    fn start(&self) -> usize {
+/// Either shims a marker, or writes a marker in place of the column while preserving the alignment
+/// of the overwritten column.
+#[derive(Debug, Clone, Copy)]
+pub struct Marker(pub char);
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Marker {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<true, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
+    }
+}
+
+impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Marker {
+    fn insert(self, writer: &'a mut DiagramWriter<W, B>, gap: Gap) -> Result<usize, Self::Error> {
+        let leading = gap.c - gap.l;
+        writer.queue_blank(leading);
+        writer.write_branch(Branch::Marker(self.0))?;
+        Ok(leading + 1)
+    }
+}
+
+/// Preserve the current column, but still update the alignment correctly.
+#[derive(Debug, Clone, Copy)]
+pub struct Preserve;
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Preserve {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<true, _, _, _>(state, align, span, minimal, Branch::Continue)
+    }
+}
+
+/// Attempt to fork the current column.
+#[derive(Debug, Clone, Copy)]
+pub struct Fork;
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Fork {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<false, _, _, _>(state, align, span, minimal, Branch::Continue)
+    }
+}
+
+/// Try to expand minimal indices.
+///
+/// The returned index is the number of extra columns that are required. The boolean is `true` if
+/// those columns were actually written, and `false` otherwise.
+///
+/// If `FIXED` is false, the column will be modified. Otherwise, alignment computations will still
+/// be performed, but the column indices will be unchanged.
+///
+/// This is a generic implementation designed to be inlined for optimization since setting `FIXED =
+/// false` or providing an empty iterator for `minimal` causes substantial simplification to the
+/// algorithm.
+#[inline]
+fn fork_impl<const FIXED: bool, V, W: io::Write, B: WriteBranch>(
+    writer: &mut DiagramWriter<W, B>,
+    col: Alignment,
+    span: &mut [(V, usize)],
+    minimal: impl IntoIterator<Item = usize>,
+    continuation: Branch,
+) -> io::Result<(usize, bool)> {
+    let target = if FIXED { col.c } else { col.clamp() };
+
+    // write preceding whitespace if we don't make it all
+    // the way to the beginning
+    writer.queue_blank(target.min(col.c) - col.l);
+
+    // The number of required branches we need before we can start branching
+    let threshold = col.l.saturating_sub(col.align);
+
+    // The amount of capacity we have for extra branches
+    // so we do not exceed the right hand limit.
+    let cap = if FIXED {
         0
+    } else {
+        match col.r {
+            Some(end) => end - target - 1,
+            None => usize::MAX,
+        }
+    };
+
+    let mut forks = 0; // how many times we forked
+    let mut required_forks = 0; // how many times we would have forked if able
+    let mut idx = 0; // the current index inside cols
+
+    // NOTE: If !FIXED, then `forks` is never modified and `target = col.c`
+    // so none of the writes to `span` do anything. However, manually suppressing
+    // each block simplifies codegen.
+
+    // whether the previous index was also a minimal index
+    // set to `true` to prevent extra increment on the first column
+    let mut prev_is_min = true;
+
+    // we do the fine-grained alignment adjustements first, which also computes
+    // the new alignment
+    for min_idx in minimal {
+        while idx < min_idx {
+            prev_is_min = false;
+            if !FIXED {
+                span[idx].1 += forks;
+            }
+            idx += 1;
+        }
+
+        // if the previous index was a target, the
+        // increment has already happened
+        if !prev_is_min {
+            if threshold <= required_forks && forks < cap {
+                forks += 1;
+            }
+            required_forks += 1;
+        }
+
+        // increment the target index
+        if !FIXED {
+            span[idx].1 += forks;
+        }
+        prev_is_min = true;
+        idx += 1;
+
+        // prevent an additional increment on the very last column
+        if idx < span.len() {
+            if threshold <= required_forks && forks < cap {
+                forks += 1;
+            }
+            required_forks += 1;
+        }
     }
 
-    fn end(&self) -> Option<usize> {
-        None
-    }
-}
-
-impl HalfOpen for RangeFrom<usize> {
-    fn start(&self) -> usize {
-        self.start
-    }
-
-    fn end(&self) -> Option<usize> {
-        None
-    }
-}
-
-impl HalfOpen for Range<usize> {
-    fn start(&self) -> usize {
-        self.start
-    }
-
-    fn end(&self) -> Option<usize> {
-        Some(self.end)
-    }
-}
-
-impl HalfOpen for RangeTo<usize> {
-    fn start(&self) -> usize {
-        0
-    }
-
-    fn end(&self) -> Option<usize> {
-        Some(self.end)
-    }
-}
-
-/// two options: use this value, or max(this value, current number of cols) to
-/// avoid jitter
-pub fn required_width<V>(cols: &[(V, usize)], min_index: usize) -> usize {
-    // count the number of distinct column values plus the number of chars needed to fork
-    let mut num_cols = 0;
-    let mut idx = 0;
-    while idx < cols.len() {
-        num_cols += 1;
-        let cur_col = cols[idx].1;
-        while idx < cols.len() && cols[idx].1 == cur_col {
+    // increment any remaining indices
+    if !FIXED {
+        while idx < span.len() {
+            span[idx].1 += forks;
             idx += 1;
         }
     }
-    let Range { start: l, end: r } = column_range(cols, min_index);
-    let extra_fork_space = if l + 1 == r {
-        0
-    } else if min_index == l || min_index + 1 == r {
-        1
-    } else {
-        2
-    };
-    num_cols + extra_fork_space
-}
 
-/// Write the marker character.
-///
-/// Since the marker position cannot move, write blanks before the marker if necessary.
-pub fn marker<W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
-    marker: char,
-    offset: usize,
-    marker_col: usize,
-) -> io::Result<(usize, usize)> {
-    let next_offset = if marker_col >= offset {
-        writer.queue_blank(marker_col - offset);
-        writer.write_branch(Branch::Marker(marker))?;
-        marker_col + 1
-    } else {
-        writer.write_branch(Branch::Marker(marker))?;
-        // propagate the offset
-        offset + 1
-    };
-    Ok((marker_col + 1, next_offset))
-}
+    // apply the global decrement/increment and write the branches
+    if target > col.c {
+        let increment = target - col.c;
 
-/// Write the marker character and also do computations to adjust the returned offset to try to
-/// make space for the next marker
-pub fn mark_and_prepare<V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
-    cols: &[(V, usize)],
-    marker: char,
-    offset: usize,
-    min_index: usize,
-) -> io::Result<(usize, usize)> {
-    debug_assert!(min_index < cols.len());
-    let Range { start: l, end: r } = column_range(cols, min_index);
-
-    let col = cols[min_index].1;
-
-    writer.queue_blank(col - offset);
-    writer.write_branch(Branch::Marker(marker))?;
-
-    // the number of columns we require to perform the fork later
-    let required_fork_space = if l + 1 == r {
-        1
-    } else if min_index == l || min_index + 1 == r {
-        2
-    } else {
-        3
-    };
-
-    let next_offset = (col + 1).max(offset + required_fork_space);
-    Ok((col + 1, next_offset))
-}
-
-/// Given a set of columns and a minimal index valid for the set of columns,
-/// compute the range of indices which match the provided column.
-pub fn column_range<V>(cols: &[(V, usize)], idx: usize) -> Range<usize> {
-    debug_assert!(idx < cols.len());
-    let min_index_col = cols[idx].1;
-    let mut start = idx;
-
-    while start > 0 && cols[start - 1].1 == min_index_col {
-        start -= 1;
-    }
-
-    let mut end = idx + 1;
-
-    while end < cols.len() && cols[end].1 == min_index_col {
-        end += 1;
-    }
-    Range { start, end }
-}
-
-/// Attempt to modify a set of columns so that they all land within the provided bounds.
-///
-/// The `bounds` argument can be one of the ranges `..`, `a..`, or `a..b`, or anything else which
-/// implements the [`HalfOpen`] trait.
-///
-/// This returns the end index of the range required to satisfy the provided alignment.
-/// If the alignment was satisfied, this is just the last column plus one. When chaining alignments
-/// together, this index should be used as the start bound for the subsequent alignment.
-pub fn align<V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
-    cols: &mut [(V, usize)],
-    bounds: impl HalfOpen,
-) -> io::Result<usize> {
-    let mut start = bounds.start();
-    let mut idx = 0;
-
-    while idx < cols.len() {
-        let cur_col = cols[idx].1;
-        if cur_col >= start {
-            let diff = cur_col - start;
-
-            match diff.checked_sub(1) {
-                None => writer.write_branch(Branch::Continue)?,
-                Some(shift) => writer.write_branch(Branch::ShiftLeft(shift))?,
+        if !FIXED {
+            for (_, c) in span.iter_mut() {
+                *c += increment;
             }
-
-            start = cur_col + 1;
-            if diff >= 1 {
-                // decrement all of the subsequent elements, as long as the value is the same
-                let new_col = cur_col - diff;
-                cols[idx].1 = new_col;
-                idx += 1;
-                while idx < cols.len() && cols[idx].1 == cur_col {
-                    cols[idx].1 = new_col;
-                    idx += 1;
-                }
-            } else {
-                // skip elements of the same value
-                while idx < cols.len() && cols[idx].1 == cur_col {
-                    idx += 1;
-                }
-            }
-        } else {
-            // the amount of right shift we would like to make, if we are able
-            let required_shift = start - cur_col;
-
-            let prev_idx = idx;
-
-            // find the index range for the current column block
-            // let mut end = idx;
-            while idx < cols.len() && cols[idx].1 == cur_col {
-                idx += 1;
-            }
-
-            // compute the amount of shift we are actually permitted to make
-            let allowed_shift = if idx < cols.len() {
-                // next element
-                let next_col = cols[idx].1;
-                // we need cur_col + allowed_shift < next_col
-                required_shift.min(next_col - cur_col - 1)
-            } else if let Some(next_col) = bounds.end() {
-                // bounded case; add a check in case the end bound is small
-                required_shift.min(next_col.saturating_sub(cur_col + 1))
-            } else {
-                // unbounded case
-                required_shift
-            };
-
-            // the new column value
-            let new_col = cur_col + allowed_shift;
-
-            match allowed_shift.checked_sub(1) {
-                None => writer.write_branch(Branch::Continue)?,
-                Some(shift) => writer.write_branch(Branch::ShiftRight(shift))?,
-            }
-            for (_, c) in cols[prev_idx..idx].iter_mut() {
-                *c = new_col;
-            }
-
-            // if we were not able to make the amount of shift that we wanted,
-            // request an extra space to avoid jitter
-            if required_shift > allowed_shift {
-                start += 1;
-            }
-
-            start = start.max(new_col + 1);
         }
-    }
-
-    Ok(start)
-}
-
-/// Resolve forks and alignment.
-///
-/// The prototypical situation we have to handle is the following.
-/// ```txt
-/// 0
-/// ├┬╮
-/// │1│
-/// ├╮2 <- printing this row
-/// 3││
-///  4│
-///   5
-/// ```
-/// We just wrote the marker for `2`, and in the previous line we write the marker `1`, but it had
-/// no children so now there is a hole.
-///
-/// The initial column state is
-/// ```txt
-/// [(3, 0), (4, 0), (*2,2)]
-/// ```
-/// We see that `(*2,2)` does not require forking to resolve, so we substitute:
-/// ```txt
-/// [(*3,0), (4, 0), (5, 2)]
-/// ```
-/// Now we try to resolve forks in the initial segment, and moreover we can use the free column 1
-/// to do this. This is the `free_col` boolean argument which is passed to this method.
-///
-/// In contrast, in a situation like
-/// ```txt
-/// 0
-/// ├┬╮
-/// │1│
-/// ├╮│ <- printing this row
-/// 2││
-///  3│
-///   4
-/// ```
-/// this is no longer the case: we cannot fork immediately before vertex `2` because vertex `1` is
-/// still occupying the position, so we need to wait one extra row to fork.
-pub fn fork_align<V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
-    cols: &mut [(V, usize)],
-    min_index: usize,
-    bounds: impl HalfOpen,
-) -> io::Result<usize> {
-    debug_assert!(min_index < cols.len());
-    let Range { start: l, end: r } = column_range(cols, min_index);
-    let mut offset = bounds.start();
-
-    if l + 1 == r {
-        // fork is not required since the minimal index is isolated
-        return align(writer, cols, bounds);
-    }
-
-    // align up to the starting index, and update the column
-    offset = align(writer, &mut cols[..l], offset..)?;
-
-    // perform the fork, but do not exceed either the end bound or the next char
-    let fork_limit = match cols.get(r) {
-        Some(end) => Some(end.1),
-        None => bounds.end(),
-    };
-
-    offset = match fork_limit {
-        Some(end) => fork_exact(writer, &mut cols[l..r], min_index - l, offset..end)?,
-        None => fork_exact(writer, &mut cols[l..r], min_index - l, offset..)?,
-    };
-
-    match bounds.end() {
-        Some(end) => align(writer, &mut cols[r..], offset..end),
-        None => align(writer, &mut cols[r..], offset..),
-    }
-}
-
-/// Perform a fork, where the fork corresponds exactly to the provided columns.
-pub fn fork_exact<V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
-    cols: &mut [(V, usize)],
-    min_index: usize,
-    bounds: impl HalfOpen,
-) -> io::Result<usize> {
-    debug_assert!(min_index < cols.len());
-    let mut offset = bounds.start();
-
-    if min_index == 0 || min_index + 1 == cols.len() {
-        // boundary fork
-        let cur_col = cols[min_index].1;
-        let space_on_left = cur_col - offset;
-
-        if space_on_left == 0 {
-            let can_fork_right = match bounds.end() {
-                Some(bd) => bd > cur_col + 1,
-                None => true,
-            };
-
-            if can_fork_right {
-                writer.write_branch(Branch::ForkDoubleRight)?;
-                if min_index == 0 {
-                    // the new minimal element follows the left fork, so all of the other
-                    // elements follow the right fork
-                    for (_, c) in cols[1..].iter_mut() {
-                        *c += 1;
-                    }
-                } else {
-                    // the new minimal element follows the right fork
-                    cols[min_index].1 = cur_col + 1;
-                }
-            } else {
-                writer.write_branch(Branch::Continue)?;
-            }
-
-            // either we fork right or we fail; either way, we request an extra space
-            offset = cur_col + 2;
-        } else {
-            if space_on_left == 1 {
-                writer.write_branch(Branch::ForkDoubleLeft)?;
-            } else {
-                writer.write_branch(Branch::ForkDoubleShiftLeft(space_on_left - 2))?;
-            }
-
-            if min_index == 0 {
-                cols[0].1 = cur_col - space_on_left;
-                for (_, c) in cols[1..].iter_mut() {
-                    *c = *c + 1 - space_on_left;
-                }
-            } else {
-                for (_, c) in cols[0..min_index].iter_mut() {
-                    *c -= space_on_left;
-                }
-                cols[min_index].1 = cols[min_index].1 + 1 - space_on_left;
-            }
-
-            // we forked left successfully, so we don't need to request an extra space
-            offset = cur_col + 1;
-        }
+        writer.write_branch(Branch::ShiftForkRight(increment - 1, forks))?;
     } else {
-        // interior fork, which has size 3
-        const EXTRA: usize = 2;
+        let decrement = col.c - target;
 
-        let cur_col = cols[min_index].1;
-        let space_on_left = cur_col - offset;
-        let space_on_right = match bounds.end() {
-            Some(bd) => bd.saturating_sub(cur_col + 1),
-            None => EXTRA,
+        if !FIXED && decrement > 0 {
+            for (_, c) in span.iter_mut() {
+                *c -= decrement;
+            }
+        }
+
+        // work out the correct drawing
+        let br = if decrement == 0 {
+            match forks.checked_sub(1) {
+                None => continuation,
+                Some(n) => Branch::ForkRight(n),
+            }
+        } else if decrement < forks {
+            Branch::ForkMiddle(decrement - 1, forks - decrement - 1)
+        } else if decrement == forks {
+            // forks > 0 since align > 0
+            Branch::ForkLeft(forks - 1)
+        } else {
+            // align > forks
+            Branch::ShiftForkLeft(decrement - forks - 1, forks)
         };
 
-        if space_on_left + space_on_right >= EXTRA {
-            // write the fork or shift and update the previous column
-            if space_on_left > EXTRA {
-                writer.write_branch(Branch::ForkTripleShiftLeft(space_on_left - EXTRA - 1))?;
-                offset = cur_col + 1;
-            } else {
-                if space_on_left == EXTRA {
-                    writer.write_branch(Branch::ForkTripleLeft)?;
-                } else if space_on_left == 1 {
-                    writer.write_branch(Branch::ForkTripleMiddle)?;
-                } else {
-                    writer.write_branch(Branch::ForkTripleRight)?;
-                }
-                offset = cur_col + EXTRA - space_on_left + 1;
-            };
-
-            // update the column values
-            for (_, c) in cols[..min_index].iter_mut() {
-                *c -= space_on_left;
-            }
-            cols[min_index].1 = cur_col - space_on_left + 1;
-            for (_, c) in cols[min_index + 1..].iter_mut() {
-                *c = *c - space_on_left + 2;
-            }
-        } else {
-            if space_on_left > 0 {
-                writer.queue_blank(1);
-            }
-            writer.write_branch(Branch::Continue)?;
-            if space_on_right > 0 {
-                writer.queue_blank(1);
-            }
-            offset = cur_col + 1 + EXTRA - space_on_left;
-        }
+        writer.write_branch(br)?;
     };
-    Ok(offset)
+
+    Ok((required_forks, required_forks == forks))
 }

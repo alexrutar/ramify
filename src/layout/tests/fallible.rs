@@ -65,9 +65,7 @@ fn fallible_basic() {
 0
 ├┬╮
 │1├╮
-│3││
-│╭╯│
-││╭┼╮
+││6│
 ",
     );
     while cols.try_write_vertex(&mut writer).unwrap() {}
@@ -77,12 +75,11 @@ fn fallible_basic() {
 0
 ├┬╮
 │1├╮
-│3││
-│╭╯│
-││╭┼╮
-│││4│
-││5╭╯
-│6╭╯
+││6│
+│3╭┤
+│╭┤│
+││4│
+│5╭╯
 7╭╯
  8
 ",

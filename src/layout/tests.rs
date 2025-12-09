@@ -30,6 +30,10 @@ impl<T> Vtx<T> {
     }
 }
 
+pub fn trs(input: &[usize]) -> Vec<((), usize)> {
+    input.iter().map(|e| ((), *e)).collect()
+}
+
 fn assert_diag_impl<R: for<'a> Ramify<&'a Vtx<char>>, B: WriteBranch>(
     root: Vtx<char>,
     expected: &str,

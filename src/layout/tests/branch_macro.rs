@@ -44,9 +44,9 @@ hbbbibbbc
 a   1   hbbbc #
 a   a   2   a #
 a   fbbbc   3     #
-a       a   fbbbc
-a       fbbbc   a
-hbbbibbbc   a   a
+hbbbc   a   fbbbc
+a   a   fbbbc   a
+a   hbbbc   a   a
 a   4   a   a   fbbbbbbbc #
 a   a   a   fbbbbbbbc   a
 a   a   fbbbbbbbc   a   a
@@ -57,9 +57,10 @@ a       6   a   a   a   a #
 7   dbbbbbbbe   a   a   a #
     8   dbbbbbbbe   a   a #
         9   dbbbbbbbe   a #
-            a   dbbbibbbg #
-dbbbbbbbbbbbbbbbe   b   a #
-c   dbbbbbbbbbbbbbbbbbbbe #
+            a   dbbbbbbbe #
+dbbbibbbibbbbbbbe
+a   b   a #
+c   dbbbe #
     d #
 ",
     );
