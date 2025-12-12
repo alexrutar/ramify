@@ -225,3 +225,25 @@ fn min_diag_width() {
 ",
     );
 }
+
+#[test]
+fn expand_all_branches() {
+    let mut config = Config::<RoundedCorners>::new();
+    config.expand_all_branches = true;
+    assert_diag_annot(
+        ex3(),
+        config,
+        "\
+0      #
+├┬┬┬┬╮
+│1││││ #
+││2│││ #
+│3││││ #
+│╭╯│4│ #
+││ 5╭╯ #
+│6╭─╯ #
+7╭╯ #
+ 8 #
+",
+    );
+}

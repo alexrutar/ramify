@@ -81,6 +81,10 @@ struct Args {
     /// avoid all internal whitespace
     #[argh(switch)]
     minimize_width: bool,
+
+    /// expand all branches before writing the vertex
+    #[argh(switch)]
+    expand_all_branches: bool,
 }
 
 /// Returns a simple tree with basic branching.
@@ -153,15 +157,6 @@ fn graph_annotations() -> Vtx {
     Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
 }
 
-/// Returns a narrow tree with sequential branching.
-fn graph_narrow() -> Vtx {
-    let v4 = Vtx::leaf('4');
-    let v3 = Vtx::inner('3', vec![v4]);
-    let v2 = Vtx::inner('2', vec![v3]);
-    let v1 = Vtx::inner('1', vec![v2]);
-    Vtx::inner('0', vec![v1])
-}
-
 // Define the custom inverted style
 branch_writer! {
     struct InvertedStyle {
@@ -204,10 +199,9 @@ fn main() -> io::Result<()> {
         "complex" => graph_complex(),
         "wide" => graph_wide(),
         "annotations" => graph_annotations(),
-        "narrow" => graph_narrow(),
         _ => {
             eprintln!("Unknown graph: {}", args.graph);
-            eprintln!("Available graphs: simple, large, complex, wide, annotations, narrow");
+            eprintln!("Available graphs: simple, large, complex, wide, annotations");
             std::process::exit(1);
         }
     };
@@ -218,6 +212,7 @@ fn main() -> io::Result<()> {
     config.annotation_margin = args.annotation_margin;
     config.min_diagram_width = args.min_diagram_width;
     config.minimize_width = args.minimize_width;
+    config.expand_all_branches = args.expand_all_branches;
 
     // Select the style and render
     // We need to use a match here because Rust requires concrete types at compile time

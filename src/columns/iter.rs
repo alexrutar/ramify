@@ -83,6 +83,10 @@ impl<'a> ColumnIndexIter<'a> {
             diff,
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.first.is_none() && self.rest.as_slice().is_empty()
+    }
 }
 
 impl ColumnIndexIter<'static> {

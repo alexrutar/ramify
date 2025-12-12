@@ -1,3 +1,48 @@
+//! An abstraction over diagram columns.
+//!
+//! # TODO Documentation:
+//!
+//! - introduce basic terminology; vertex; children; parent
+//! - idea of 'active' vertices (vertices not yet drawn for which the parent has already been
+//!   drawn)
+//! - idea of the 'state' being intermediate between two rows
+//! - predictive rendering and preparation for following vertices
+//! - delayed branching (if there is padding)
+//! - width limitations
+//! - explain how width interacts with the annotation (we need to make space, so the tree does not
+//!   overlap with the annotation in subsequent rows)
+//! - one step lookahead, but not more: why lookahead?
+//! - fork alignment logic, and 'alignment targets':
+//!   - delaying forks until 'inside' the target: once a fork happens, it is much more difficult to move it
+//!   - since we do not know the diagram width until the end, we need to compact as much as possible
+//! - child order when forking
+//! - Why 1-step lookahead?
+//!   1. More optimal layout
+//!   2. If vertex retrieval fails, we don't want to write any characters.
+//!      This is particularly important in `inverted` writing mode.
+//! - Implementing 1-step lookahead using the `Shim` trait.
+//! - annotation layout, make 'box limit' diagrams showing where the various margins are, etc.
+//! - internal data model, i.e. a sorted vec of columns with vertices
+//! - description of the fundamental components of the algorithm (basically, operations which
+//!   attempt to move a given column to a new location, plus 'forks', and unmoveable markers)
+//! ### Internal state
+//! The generator corresponds to the state at the `tip` of a partially written branch diagram. In
+//! order to reduce the width of the branch diagram, multiple vertices can share the same edges
+//! within the diagram.
+//!
+//! For example, consider the following partial branch diagram. The vertex `0` is the root.
+//!
+//! We can see that it has children `3`, `1`, and `2`. The vertex `2` also has a child `4`. These
+//! vertices also have an unknown number of children that have not yet been drawn, corresponding to the
+//! outgoing edges at the bottom of the diagram.
+//! ```txt
+//! 0
+//! ├┬╮
+//! │1│
+//! ├╮2
+//! 3│├╮
+//! │││4
+//! ```
 mod iter;
 
 use std::{iter::repeat, ops::BitOrAssign};
@@ -59,6 +104,11 @@ impl<V, R, B> Columns<V, R, B> {
             min_index: Some(0),
             config,
         }
+    }
+
+    /// Get a reference to the configuration.
+    pub fn config(&self) -> &Config<B> {
+        &self.config
     }
 
     /// Get a mutable reference to the configuration.
@@ -130,11 +180,14 @@ impl<V, R, B> Columns<V, R, B> {
     }
 }
 
-impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
+impl<V, R, B> Columns<V, R, B> {
     /// Get the marker character at the provided index.
     ///
     /// Panics if the index is out of range.
-    pub fn marker_char(&self, idx: usize) -> char {
+    pub fn marker_char(&self, idx: usize) -> char
+    where
+        R: TryRamify<V>,
+    {
         self.ramifier.marker(&self.columns[idx].0)
     }
 
@@ -146,7 +199,10 @@ impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
     }
 
     /// Compute the annotation, storing it in the provided buffer.
-    pub fn buffer_annotation(&mut self, idx: usize, buf: &mut String) {
+    pub fn buffer_annotation(&mut self, idx: usize, buf: &mut String)
+    where
+        R: TryRamify<V>,
+    {
         self.ramifier
             .annotate(&self.columns[idx].0, buf)
             .expect("Writing to a `String` should not fail.");
@@ -154,7 +210,10 @@ impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
 
     /// Substitute the vertex at the provided index, replacing it with its children and
     /// recomputing the minimal index.
-    pub fn substitute(&mut self, idx: usize) -> Result<(), R::Error> {
+    pub fn substitute(&mut self, idx: usize) -> Result<(), R::Error>
+    where
+        R: TryRamify<V>,
+    {
         // in order to optimize substitutions, we temporarily swap indices
         // into the target, and then swap back at the end
         if idx + 1 == self.columns.len() {
