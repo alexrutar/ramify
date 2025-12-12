@@ -9,7 +9,8 @@ use crate::{
 };
 
 /// Compact much as possible, ignoring minimal indices.
-#[allow(unused)]
+///
+/// This is the opposite of [`Isolate`].
 #[derive(Debug, Clone, Copy)]
 pub struct Compact;
 
@@ -23,7 +24,7 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Co
         span: &mut [(V, usize)],
         _minimal: ColumnIndexIter<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<false, _, _, _>(state, align, span, [], Branch::Continue)
+        fork_impl::<false, false, _, _, _>(state, align, span, [], Branch::Continue)
     }
 }
 
@@ -42,7 +43,7 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Ma
         span: &mut [(V, usize)],
         minimal: ColumnIndexIter<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<true, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
+        fork_impl::<true, true, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
     }
 }
 
@@ -55,7 +56,40 @@ impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Mar
     }
 }
 
-/// Preserve the current column, but still update the alignment correctly.
+#[derive(Debug, Clone, Copy)]
+pub struct MarkerGreedy(pub char);
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for MarkerGreedy {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        if minimal.is_empty() {
+            fork_impl::<true, true, _, _, _>(state, align, span, [], Branch::Marker(self.0))
+        } else {
+            fork_impl::<true, true, _, _, _>(
+                state,
+                align,
+                span,
+                0..span.len(),
+                Branch::Marker(self.0),
+            )
+        }
+    }
+}
+
+impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for MarkerGreedy {
+    fn insert(self, writer: &'a mut DiagramWriter<W, B>, gap: Gap) -> Result<usize, Self::Error> {
+        Marker(self.0).insert(writer, gap)
+    }
+}
+
+/// Preserve the current column position, but still update the alignment correctly.
 #[derive(Debug, Clone, Copy)]
 pub struct Preserve;
 
@@ -69,7 +103,7 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Pr
         span: &mut [(V, usize)],
         minimal: ColumnIndexIter<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<true, _, _, _>(state, align, span, minimal, Branch::Continue)
+        fork_impl::<false, true, _, _, _>(state, align, span, minimal, Branch::Continue)
     }
 }
 
@@ -87,7 +121,51 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Fo
         span: &mut [(V, usize)],
         minimal: ColumnIndexIter<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<false, _, _, _>(state, align, span, minimal, Branch::Continue)
+        fork_impl::<false, false, _, _, _>(state, align, span, minimal, Branch::Continue)
+    }
+}
+
+/// Attempt to isolate every column in column blocks which contain at least one minimal element.
+///
+/// This applies [`Compact`] if there are no minimal indices, and [`Isolate`] otherwise.
+#[derive(Debug, Clone, Copy)]
+pub struct ForkGreedy;
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for ForkGreedy {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        if minimal.is_empty() {
+            Compact.apply(state, align, span, minimal)
+        } else {
+            Isolate.apply(state, align, span, minimal)
+        }
+    }
+}
+
+/// Attempt to isolate every column, regardless of minimality.
+///
+/// This is the opposite of [`Compact`].
+#[derive(Debug, Clone, Copy)]
+pub struct Isolate;
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Isolate {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        _: ColumnIndexIter<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<false, false, _, _, _>(state, align, span, 0..span.len(), Branch::Continue)
     }
 }
 
@@ -103,7 +181,7 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Fo
 /// false` or providing an empty iterator for `minimal` causes substantial simplification to the
 /// algorithm.
 #[inline]
-fn fork_impl<const FIXED: bool, V, W: io::Write, B: WriteBranch>(
+fn fork_impl<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B: WriteBranch>(
     writer: &mut DiagramWriter<W, B>,
     col: Alignment,
     span: &mut [(V, usize)],
@@ -121,7 +199,7 @@ fn fork_impl<const FIXED: bool, V, W: io::Write, B: WriteBranch>(
 
     // The amount of capacity we have for extra branches
     // so we do not exceed the right hand limit.
-    let cap = if FIXED {
+    let cap = if NOBRANCH {
         0
     } else {
         match col.r {

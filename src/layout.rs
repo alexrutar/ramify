@@ -85,7 +85,7 @@ pub(crate) use crate::columns::RowState;
 /// If you drop a
 /// generator, the list of active vertices will be de-allocated. You can recover the list of active vertices using [`into_active_vertices`](Self::into_active_vertices).
 ///
-/// If [`Ramify::should_merge`] returns true, the vertex `other` will be dropped.
+/// If [`Ramify::is_identical`] returns true, the vertex `other` will be dropped.
 ///
 /// ### Runtime and memory complexity
 ///
@@ -134,13 +134,14 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 
     /// Returns the current configuration.
-    pub fn config(&mut self) -> &Config<B> {
-        self.columns.config_mut()
+    pub fn config(&self) -> &Config<B> {
+        self.columns.config()
     }
 
     /// Returns a mutable reference to the configuration.
     ///
-    /// The configuration parameters can be safely changed while generating the branch diagram.
+    /// The configuration parameters can be safely changed in between vertices of the branch
+    /// diagram.
     pub fn config_mut(&mut self) -> &mut Config<B> {
         self.columns.config_mut()
     }
@@ -169,6 +170,34 @@ impl<E: std::fmt::Display> std::fmt::Display for WriteVertexError<E> {
             Self::IO(error) => error.fmt(f),
             Self::TryChildrenFailed(error) => error.fmt(f),
         }
+    }
+}
+
+fn write_preparation_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
+    cols: &mut Columns<V, R, B>,
+    writer: &mut DiagramWriter<W, B>,
+) -> io::Result<RowState> {
+    if cols.config().expand_all_branches {
+        cols.write_row(writer, ops::ForkGreedy)
+    } else {
+        cols.write_row(writer, ops::Fork)
+    }
+}
+
+fn write_vertex_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
+    cols: &mut Columns<V, R, B>,
+    writer: &mut DiagramWriter<W, B>,
+    col: usize,
+    marker_char: char,
+) -> io::Result<RowState> {
+    if cols.config().expand_all_branches {
+        cols.write_shimmed_row(
+            writer,
+            ops::ForkGreedy,
+            (col, ops::MarkerGreedy(marker_char)),
+        )
+    } else {
+        cols.write_shimmed_row(writer, ops::Fork, (col, ops::Marker(marker_char)))
     }
 }
 
@@ -294,11 +323,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
             .map_err(WriteVertexError::TryChildrenFailed)?;
 
         // write the vertex row and get the diagram width
-        let mut state = self.columns.write_shimmed_row(
-            &mut writer,
-            ops::Fork,
-            (col, ops::Marker(marker_char)),
-        )?;
+        let mut state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
 
         // compute the annotation alignment based on the gutter width
 
@@ -311,7 +336,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
                 // write the remaining annotation lines
                 for line in lines {
-                    state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                    state |= write_preparation_row(&mut self.columns, &mut writer)?;
                     writer.write_annotation(line, &state)?;
                 }
             }
@@ -325,12 +350,12 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         } else {
             let mut padding = self.config().row_padding;
             while padding > 0 {
-                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                state |= write_preparation_row(&mut self.columns, &mut writer)?;
                 writer.write_newline()?;
                 padding -= 1;
             }
             while !state.is_ready() {
-                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                state |= write_preparation_row(&mut self.columns, &mut writer)?;
                 writer.write_newline()?;
             }
             Ok(true)
@@ -360,7 +385,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         if self.prev.is_some() {
             let mut padding = self.config().row_padding;
             while padding > 0 {
-                state |= self.columns.write_row(&mut writer, ops::Fork)?;
+                state |= write_preparation_row(&mut self.columns, &mut writer)?;
                 writer.write_newline()?;
                 padding -= 1;
             }
@@ -368,7 +393,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
         // make the minimal index a singleton so that the vertex row can be written.
         while !state.is_ready() {
-            state |= self.columns.write_row(&mut writer, ops::Fork)?;
+            state |= write_preparation_row(&mut self.columns, &mut writer)?;
             writer.write_newline()?;
         }
 
@@ -393,11 +418,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
                 self.columns
                     .substitute(min_idx)
                     .map_err(WriteVertexError::TryChildrenFailed)?;
-                let state = self.columns.write_shimmed_row(
-                    &mut writer,
-                    ops::Fork,
-                    (col, ops::Marker(marker_char)),
-                )?;
+                let state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
                 self.prev = Some(state);
 
                 writer.write_newline()?;

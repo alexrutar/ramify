@@ -318,8 +318,8 @@ fn shimmed() {
 
         let mut active = trs(cols);
         let expected_output = trs(output);
-        let mut cols_mut = super::ColumnsMut::new(&mut active, minimal.convert())
-            .with_shim((col, crate::layout::ops::Marker(ch)));
+        let mut cols_mut =
+            super::ColumnsMut::new(&mut active, minimal.convert()).with_shim((col, Marker(ch)));
 
         let mut target: Vec<u8> = Vec::new();
         let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);

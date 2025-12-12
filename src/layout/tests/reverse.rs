@@ -70,6 +70,7 @@ fn assert_diag_impl<R: for<'t> Ramify<&'t Vtx<char>>, B: WriteBranch>(
 #[test]
 fn reversed_basic() {
     branch_writer! {
+        #[derive(Clone)]
         pub struct MyStyle {
             charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
             gutter_width: 1,
@@ -83,7 +84,7 @@ fn reversed_basic() {
 
     assert_diag_annot(
         ex2(),
-        config,
+        config.clone(),
         "    3
     2
 0   1
@@ -150,27 +151,27 @@ fn reversed_no_annotation() {
 ││││ 3
 ││││ 2
 ││2│ 1
-││ │ 3
-││ │ 2
-││ 3 1
-│╭╯╭╯
-├╯╭╯│
-│├╯││
+││╰╮ 3
+│││  2
+││3  1
+││╭─╯
+│╭─╯│
+├┴╯││
 │││││ 3
 │││││ 2
 │4│││ 1
-│ │││ 3
-│ │││ 2
-5 │││ 1
-  │││ 3
-  │││ 2
-  6││ 1
-   ││ 3
-   ││ 2
-   7│ 1
-    │ 3
-    │ 2
-    8 1
+│╰╮││ 3
+││╰╮│ 2
+5││╰╮ 1
+╰╮││  3
+│╰╮│  2
+6│╰╮  1
+╰╮│  3
+│╰╮  2
+7│   1
+╰╮ 3
+│  2
+8  1
 ",
     );
 }
@@ -178,7 +179,6 @@ fn reversed_no_annotation() {
 #[test]
 fn reversed_complex() {
     branch_writer! {
-        #[derive(Debug, Copy, Clone, PartialEq, Eq)]
         pub struct MyStyle {
             charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
             gutter_width: 0,
@@ -187,6 +187,36 @@ fn reversed_complex() {
     }
     let mut config = Config::<MyStyle>::new();
     config.row_padding = 0;
+
+    assert_diag(
+        ex1(),
+        config.clone(),
+        "\
+0
+├┴╯
+│1├╯
+││2│
+│╭╯3
+├╯│╭╯
+││╭╯│
+│├╯││
+│4││╭─╯
+│││╭─╯│
+││╭─╯││
+│╭─╯│││
+├┴╯││││
+│5│││││
+│ 6││││
+7╰─╮│││
+ 8╰─╮││
+  9╰─╮│
+   a╰─╮
+╰┴┴─╮
+│b│
+c╰╮
+ d
+",
+    );
 
     assert_diag(
         ex8(),
