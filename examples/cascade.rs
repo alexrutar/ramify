@@ -91,7 +91,7 @@ impl Ramify<f64> for RandomCascade {
         array
     }
 
-    fn key(&self, vtx: &f64) -> impl Ord {
+    fn sort_key(&self, vtx: &f64) -> impl Ord {
         Key(*vtx)
     }
 
@@ -118,9 +118,9 @@ fn main() -> std::io::Result<()> {
             show_weight: false, // change to `true` to see the vertex weights
         },
     );
-    // modify these lines to try out some of the configuration options
+    // uncomment these lines to try out some of configuration options
     // generator.config_mut().row_padding = 1;
-    // generator.config_mut().width_slack = true;
+    // generator.config_mut().no_internal_whitespace = true;
     while generator.write_vertex(io::stdout().lock())? {}
     Ok(())
 }

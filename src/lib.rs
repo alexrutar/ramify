@@ -78,7 +78,7 @@ pub trait Ramify<V> {
     /// the minimal element is first or last tends to produce narrower trees since this avoids 3-way forks.
     fn ramify(&mut self, vtx: V) -> impl IntoIterator<Item = V>;
 
-    /// Get the key associated with a vertex.
+    /// Get the sort key associated with a vertex.
     ///
     /// This key is used for the *vertical* render order; that is, to decide which vertex should be
     /// rendered next. This is different than the iteration order of the children. See
@@ -100,7 +100,7 @@ pub trait Ramify<V> {
     /// In many standard use-cases, the children of a vertex are greater than the
     /// vertex itself. However, failing to guarantee this will not corrupt the branch diagram.
     /// The next vertex which is drawn is simply the minimal vertex out of the *active vertices* (the vertices with an immediate parent already drawn to the diagram).
-    fn key(&self, vtx: &V) -> impl Ord;
+    fn sort_key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     ///
@@ -170,21 +170,26 @@ pub trait Ramify<V> {
     /// Return if two vertices are identical and should be merged.
     ///
     /// The first argument is the current minimal vertex and the second argument is a different active
-    /// vertex. This method is called once for other active vertex immediately before the minimal
-    /// vertex is rendered.
+    /// vertex. This method is called once for other active vertex, after computing the new minimal
+    /// vertex.
+    ///
+    /// This method must be compatible with [`Ramify::sort_key`]: *if two vertices are identical,
+    /// then their sort keys must also be equal*. The converse need not hold (the sort
+    /// keys can be equal even if the keys are not identical). Failure to uphold this invariant
+    /// will result in otherwise identical vertices not being merged.
     ///
     /// The default implementation always returns `false`, so vertices will never be merged.
-    /// Vertices which are merged will be passed to [`terminate`](Ramify::terminate).
+    /// Vertices which are merged will be passed to [`cleanup`](Ramify::cleanup).
     ///
     /// # Difference from `key`
     ///
-    /// Unlike [`key`](Ramify::key), this method should check that the
+    /// Unlike [`sort_key`](Ramify::sort_key), this method should check that the
     /// vertices are exactly the same. What this means depends on the vertex type, but
     /// this might look like [`Rc::ptr_eq`](std::rc::Rc::ptr_eq), or like comparison of a `usize`
     /// index for flattened graph-like structures.
     #[allow(unused)]
     #[inline]
-    fn should_merge(&self, vtx: &V, other: &V) -> bool {
+    fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
     }
 
@@ -195,7 +200,7 @@ pub trait Ramify<V> {
     ///
     /// The default implementation drops the vertex.
     #[inline]
-    fn terminate(&self, vtx: V) {
+    fn cleanup(&self, vtx: V) {
         drop(vtx);
     }
 }
@@ -253,8 +258,8 @@ pub trait TryRamify<V> {
         vtx: V,
     ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>>;
 
-    /// Get the key associated with a vertex.
-    fn key(&self, vtx: &V) -> impl Ord;
+    /// Get the sort key associated with a vertex.
+    fn sort_key(&self, vtx: &V) -> impl Ord;
 
     /// The vertex marker in the branch diagram.
     fn marker(&self, vtx: &V) -> char;
@@ -268,13 +273,13 @@ pub trait TryRamify<V> {
     /// Determine if two vertices are identical and should be merged.
     #[allow(unused)]
     #[inline]
-    fn should_merge(&self, vtx: &V, other: &V) -> bool {
+    fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
     }
 
     /// Clean up a merged vertex.
     #[inline]
-    fn terminate(&self, vtx: V) {
+    fn cleanup(&self, vtx: V) {
         drop(vtx);
     }
 }
@@ -289,8 +294,8 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
         Ok(<Self as Ramify<V>>::ramify(self, vtx))
     }
 
-    fn key(&self, vtx: &V) -> impl Ord {
-        <Self as Ramify<V>>::key(self, vtx)
+    fn sort_key(&self, vtx: &V) -> impl Ord {
+        <Self as Ramify<V>>::sort_key(self, vtx)
     }
 
     fn marker(&self, vtx: &V) -> char {
@@ -301,11 +306,11 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
         <Self as Ramify<V>>::annotate(self, vtx, buf)
     }
 
-    fn should_merge(&self, vtx: &V, other: &V) -> bool {
-        <Self as Ramify<V>>::should_merge(self, vtx, other)
+    fn is_identical(&self, vtx: &V, other: &V) -> bool {
+        <Self as Ramify<V>>::is_identical(self, vtx, other)
     }
 
-    fn terminate(&self, vtx: V) {
-        <Self as Ramify<V>>::terminate(self, vtx)
+    fn cleanup(&self, vtx: V) {
+        <Self as Ramify<V>>::cleanup(self, vtx)
     }
 }

@@ -8,7 +8,7 @@ fn assert_diag(root: Vtx<char>, expected: &str) {
             vtx.children.iter()
         }
 
-        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 

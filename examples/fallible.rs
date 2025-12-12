@@ -55,7 +55,7 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
         }
     }
 
-    fn key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
+    fn sort_key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
         vtx.map(|v| v.data)
     }
 
