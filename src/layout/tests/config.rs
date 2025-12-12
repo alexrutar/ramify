@@ -10,7 +10,7 @@ fn assert_diag<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expected: &st
             vtx.children.iter()
         }
 
-        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -30,7 +30,7 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
             vtx.children.iter()
         }
 
-        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 

@@ -38,7 +38,7 @@ impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
         vtx.children.iter()
     }
 
-    fn key(&self, vtx: &&'t Vtx) -> impl Ord {
+    fn sort_key(&self, vtx: &&'t Vtx) -> impl Ord {
         vtx.data
     }
 

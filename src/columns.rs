@@ -28,23 +28,6 @@ impl BitOrAssign for RowState {
 }
 
 impl RowState {
-    fn new<B>(status: Status, config: &Config<B>) -> Self {
-        let ready = if config.lazy {
-            status.is_compressed()
-        } else {
-            status.isolated
-        };
-        let alignment = status.reserved_width().max(config.min_diagram_width);
-        let width = status.width;
-
-        Self {
-            alignment,
-            width,
-            margin: config.annotation_margin,
-            ready,
-        }
-    }
-
     pub fn alignment(&self) -> (usize, usize, usize) {
         (self.margin, self.alignment, self.width)
     }
@@ -120,6 +103,29 @@ impl<V, R, B> Columns<V, R, B> {
             width: 0,
             margin: self.config.annotation_margin,
             ready: true,
+        }
+    }
+
+    /// Convert the status to a state report.
+    fn state(&self, status: Status) -> RowState {
+        let ready = if self.config.minimize_width {
+            // we wait until the final column aligns with the target width
+            self.max_edge_index()
+                .is_none_or(|c| status.isolated && status.target_width == c + 1)
+            // dbg!(&status);
+            // dbg!(self.max_edge_index());
+            // status.isolated
+        } else {
+            status.isolated
+        };
+        let alignment = status.reserved_width().max(self.config.min_diagram_width);
+        let width = status.width;
+
+        RowState {
+            alignment,
+            width,
+            margin: self.config.annotation_margin,
+            ready,
         }
     }
 }
@@ -212,7 +218,7 @@ impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
             .columns
             .iter()
             .enumerate()
-            .min_by_key(|(_, (e, _))| self.ramifier.key(e))
+            .min_by_key(|(_, (e, _))| self.ramifier.sort_key(e))
             .map(|(a, _)| a);
 
         Ok(())
@@ -225,7 +231,8 @@ impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
     {
         let mut col_iter = ColumnsMut::new(&mut self.columns, self.min_index.map(|i| (i, &[][..])));
         while col_iter.apply(op, state)?.is_some() {}
-        Ok(RowState::new(col_iter.status(), &self.config))
+        let status = col_iter.status();
+        Ok(self.state(status))
     }
 
     /// Write a single row by applying the provided operation to every column, with a shim at a
@@ -243,6 +250,7 @@ impl<V, R: TryRamify<V>, B> Columns<V, R, B> {
         let mut col_iter = ColumnsMut::new(&mut self.columns, self.min_index.map(|i| (i, &[][..])))
             .with_shim(shim);
         while col_iter.apply(op, state)?.is_some() {}
-        Ok(RowState::new(col_iter.cols().status(), &self.config))
+        let status = col_iter.cols().status();
+        Ok(self.state(status))
     }
 }

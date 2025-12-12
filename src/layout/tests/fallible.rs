@@ -18,7 +18,7 @@ impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
         }
     }
 
-    fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+    fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
         vtx.data
     }
 

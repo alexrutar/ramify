@@ -52,6 +52,8 @@ use std::{fmt, io, marker::PhantomData};
 /// Configuration passed to a [`Generator`](crate::Generator) to control the appearance
 /// and layout of the branch diagram and associated annotations.
 ///
+/// ### Layout and style
+///
 /// Configuration is separated into *layout* and *style*.
 ///
 /// Layout is configured dynamically.
@@ -64,13 +66,19 @@ use std::{fmt, io, marker::PhantomData};
 /// specified at compilation time. The built-in styles are documented in the [module-level
 /// docs](self#style-gallery).
 ///
+/// If you want to separate setting the style and setting the layout, create an unstyled
+/// configuration with [`Config::without_style`] and then add the style parameter later
+/// using [`Config::reset_style`].
+///
+/// ### Width numbers
+///
 /// Note that the width numbers may be in terms of gutters rather than characters. If the gutter width
 /// is 0, this is the the same as the character width. In general, if the width is `n`, the
 /// resulting number of characters is `(gutter_width + 1) * n`.
 #[derive(Debug, Clone)]
 pub struct Config<B> {
-    /// Extra padding before each vertex. The padding applies after the annotation, or after the
-    /// vertex if there is no annotation. This is the number of characters. The default is `0`.
+    /// Extra padding between vertices. The padding applies after the annotation, or after the
+    /// vertex if there is no annotation. This is the number of rows. The default is `0`.
     pub row_padding: usize,
     /// The margin between the annotation and the branch diagram. This is the number of characters. The default is `1`.
     pub annotation_margin: usize,
@@ -78,11 +86,10 @@ pub struct Config<B> {
     /// Margin requested in `margin_left` is added to of this parameter. This is the number of
     /// gutters. The default value is `0`.
     pub min_diagram_width: usize,
-    /// Whether or not to wait until the diagram is as compact as possible. If `false`, the diagram will be
-    /// somewhat shorter, at the cost of introducing additional internal whitespace. This can be
-    /// especially pronounced when writing in inverted mode with no padding. The default is
-    /// `false`.
-    pub lazy: bool,
+    /// Whether to minimize the width as much as possible. If set, each row containing a vertex
+    /// marker will occupy the minimal number of columns possible and there will be no internal
+    /// whitespace. This almost always makes the diagram taller. The default value is `false`.
+    pub minimize_width: bool,
     branch_writer: PhantomData<B>,
 }
 
@@ -108,9 +115,33 @@ impl<B> Config<B> {
             row_padding: 0,
             annotation_margin: 1,
             min_diagram_width: 0,
-            lazy: false,
+            minimize_width: false,
             branch_writer: PhantomData,
         }
+    }
+
+    /// Use a new style parameter.
+    ///
+    /// This method is commonly combined with the [`without_style`](Config::without_style) method
+    /// to set the style after initializing the runtime configuration parameters.
+    pub const fn reset_style<A>(self) -> Config<A> {
+        Config {
+            row_padding: self.row_padding,
+            annotation_margin: self.annotation_margin,
+            min_diagram_width: self.min_diagram_width,
+            minimize_width: self.minimize_width,
+            branch_writer: PhantomData,
+        }
+    }
+}
+
+impl Config<()> {
+    /// Initialize without specifying a style.
+    ///
+    /// This is identical to the [`new`](Config::new) method with a null style `()`. You can add a
+    /// style afterwards with [`reset_style`](Config::reset_style).
+    pub const fn without_style() -> Self {
+        Self::new()
     }
 }
 
@@ -439,6 +470,9 @@ pub trait WriteBranch {
         F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()>;
 }
 
+// NOTE: generate the examples using
+// $ cargo run --example styles -- -s RoundedCorners -g complex | sed 's/^/    \/\/\/ /'
+
 branch_writer!(
     /// A style which uses rounded corners and no (unnecessary) internal whitespace.
     /// ```
@@ -449,9 +483,9 @@ branch_writer!(
     /// ├┬╮
     /// │1├╮
     /// ││2│
-    /// │3││
-    /// │╭╯│
-    /// ││╭┼╮
+    /// │3│├╮
+    /// │╭╯││
+    /// ││╭┤│
     /// │││4│
     /// ││5╭╯
     /// │6╭╯
@@ -489,9 +523,9 @@ branch_writer!(
     /// ├┬┐
     /// │1├┐
     /// ││2│
-    /// │3││
-    /// │┌┘│
-    /// ││┌┼┐
+    /// │3│├┐
+    /// │┌┘││
+    /// ││┌┤│
     /// │││4│
     /// ││5┌┘
     /// │6┌┘
@@ -528,9 +562,9 @@ branch_writer!(
     /// ├─┬─╮
     /// │ 1 ├─╮
     /// │ │ 2 │
-    /// │ 3 │ │
-    /// │ ╭─╯ │
-    /// │ │ ╭─┼─╮
+    /// │ 3 │ ├─╮
+    /// │ ╭─╯ │ │
+    /// │ │ ╭─┤ │
     /// │ │ │ 4 │
     /// │ │ 5 ╭─╯
     /// │ 6 ╭─╯
@@ -568,9 +602,9 @@ branch_writer!(
     /// ├─┬─┐
     /// │ 1 ├─┐
     /// │ │ 2 │
-    /// │ 3 │ │
-    /// │ ┌─┘ │
-    /// │ │ ┌─┼─┐
+    /// │ 3 │ ├─┐
+    /// │ ┌─┘ │ │
+    /// │ │ ┌─┤ │
     /// │ │ │ 4 │
     /// │ │ 5 ┌─┘
     /// │ 6 ┌─┘
@@ -607,9 +641,9 @@ branch_writer!(
     /// ╠═╦═╗
     /// ║ 1 ╠═╗
     /// ║ ║ 2 ║
-    /// ║ 3 ║ ║
-    /// ║ ╔═╝ ║
-    /// ║ ║ ╔═╬═╗
+    /// ║ 3 ║ ╠═╗
+    /// ║ ╔═╝ ║ ║
+    /// ║ ║ ╔═╣ ║
     /// ║ ║ ║ 4 ║
     /// ║ ║ 5 ╔═╝
     /// ║ 6 ╔═╝

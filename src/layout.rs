@@ -49,7 +49,7 @@ pub(crate) use crate::columns::RowState;
 ///   minimal vertex.
 /// - [`Ramify::ramify`] is called exactly once to replace the current minimal vertex with its
 ///   children
-/// - [`Ramify::key`] is called once for every active vertex every time a new vertex is
+/// - [`Ramify::sort_key`] is called once for every active vertex every time a new vertex is
 ///   generated.
 ///
 /// Moreover, the call to [`Ramify::ramify`] is **guaranteed to be last** for each vertex. This is enforced by the borrow checker since the signature takes ownership of `V`.
@@ -235,12 +235,10 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     ///
     /// # Handling of the replacement vertex
     ///
-    /// If the call fails and the replacement vertex is different, this could still result in some
-    /// rows written in order to prepare the new vertex to be written immediately if the next call
-    /// succeeds.
-    ///
-    /// If the replacement vertex is still the minimal vertex, it is guaranteed that no writes will
-    /// occur. This is the case if the original vertex is returned and [`TryRamify::key`] is a pure function.
+    /// The replacement vertex will be used as the minimal vertex, even if the vertex changed. In
+    /// most cases, you should just return the original vertex, but an alternative could be returned
+    /// if the original vertex should not be attempted again. In particular, no writes will occur
+    /// when rendering fails.
     pub fn try_write_vertex<W: io::Write>(
         &mut self,
         writer: W,

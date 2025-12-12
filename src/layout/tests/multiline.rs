@@ -8,7 +8,7 @@ fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
             vtx.children.iter()
         }
 
-        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 
@@ -283,7 +283,7 @@ fn final_annotation_alignment() {
             vtx.children.iter()
         }
 
-        fn key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
             vtx.data
         }
 

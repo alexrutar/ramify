@@ -112,7 +112,7 @@ pub struct Status {
     pub isolated: bool,
     /// The largest column which contains characters.
     pub width: usize,
-    /// The number of columns of the minimal indices are isolated.
+    /// The number of columns if the minimal indices are isolated.
     pub target_width: usize,
 }
 
@@ -120,11 +120,6 @@ impl Status {
     /// The number of columns required.
     pub fn reserved_width(&self) -> usize {
         self.width.max(self.target_width)
-    }
-
-    /// Whether the row has isolated vertices and occupies as few columns as possible.
-    pub fn is_compressed(&self) -> bool {
-        self.isolated && self.width == self.target_width
     }
 }
 
