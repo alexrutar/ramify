@@ -6,24 +6,24 @@ use std::{
     slice::{ChunkByMut, Iter},
 };
 
-/// An operation which can be applied to a row.
-pub trait Apply<State> {
+/// An operation which can be applied to a column.
+pub trait Apply<W> {
     type Error;
 
     /// Apply the map to a column.
     fn apply<V>(
         self,
-        state: State,
+        state: W,
         align: Alignment,
         span: &mut [(V, usize)],
-        minimal: ColumnIndexIter<'_>,
+        minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error>;
 }
 
-/// An operation which can be shimmed in between rows.
-pub trait Shim<State>: Apply<State> {
-    /// Insert the shim into the provided gap.
-    fn insert(self, state: State, gap: Gap) -> Result<usize, Self::Error>;
+/// An operation which can be applied to a column or between columns.
+pub trait Shim<W>: Apply<W> {
+    /// Insert into the provided gap.
+    fn insert(self, state: W, gap: Gap) -> Result<usize, Self::Error>;
 }
 
 /// The alignment of a column.
@@ -32,6 +32,7 @@ pub trait Shim<State>: Apply<State> {
 ///
 /// 1. `self.l <= self.c`
 /// 2. `self.r.is_none_or(|x| self.c < x)`
+#[derive(Debug)]
 pub struct Alignment {
     /// The lower limit for legal writes.
     pub l: usize,
@@ -69,37 +70,83 @@ pub struct Gap {
 }
 
 /// The minimal indices corresponding to a given column.
-pub struct ColumnIndexIter<'a> {
+#[derive(Debug)]
+pub struct MinIndices<'a> {
     first: Option<usize>,
     rest: Iter<'a, usize>,
     diff: usize,
+    lt_first: bool,
+    geq_last: bool,
 }
 
-impl<'a> ColumnIndexIter<'a> {
-    pub fn new(first: Option<usize>, rest: &'a [usize], diff: usize) -> Self {
+pub enum Position {
+    /// An index before the first minimal index.
+    BeforeFirst,
+    /// The only minimal index.
+    Isolated,
+    /// The first minimal index, which is not also the last.
+    First,
+    /// A minimal index which is not the first or the last.
+    Inner,
+    /// An index which is between the first and last minimal indices, but is not minimal.
+    InnerSkipped,
+    /// The last minimal index, which is not also the first.
+    Last,
+    /// An index after the last minimal index.
+    AfterLast,
+}
+
+impl<'a> MinIndices<'a> {
+    pub fn new(
+        first: Option<usize>,
+        rest: &'a [usize],
+        diff: usize,
+        lt_first: bool,
+        geq_last: bool,
+    ) -> Self {
         Self {
             first,
             rest: rest.iter(),
             diff,
+            lt_first,
+            geq_last,
         }
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.first.is_none() && self.rest.as_slice().is_empty()
+    /// Return the position of this minimal index relative to the other minimal indices.
+    pub fn pos(&self) -> Position {
+        if self.lt_first {
+            Position::BeforeFirst
+        } else if self.first.is_some() {
+            if self.geq_last {
+                Position::Isolated
+            } else {
+                Position::First
+            }
+        } else {
+            match (self.rest.as_slice().is_empty(), self.geq_last) {
+                (false, false) => Position::Inner,
+                (true, false) => Position::InnerSkipped,
+                (false, true) => Position::Last,
+                (true, true) => Position::AfterLast,
+            }
+        }
     }
 }
 
-impl ColumnIndexIter<'static> {
-    pub fn empty() -> Self {
+impl MinIndices<'static> {
+    pub fn empty(lt_first: bool, geq_last: bool) -> Self {
         Self {
             first: None,
             rest: [].iter(),
             diff: 0,
+            lt_first,
+            geq_last,
         }
     }
 }
 
-impl<'a> Iterator for ColumnIndexIter<'a> {
+impl<'a> Iterator for MinIndices<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -133,12 +180,21 @@ pub struct ColumnsMut<'a, V> {
     l: usize,
     isolated: bool,
     align: usize,
+    // FIXME: it would be better if `ColumnsMut`, `Shimmed`, and a new `Bounded`
+    // were all implementors of some trait, and `Shimmed` and `Bounded` were
+    // generic over the trait
+    bound: Option<usize>,
 }
 
 impl<'a, V> ColumnsMut<'a, V> {
     /// Initialize a new left-aligned mutable column iterator.
     pub fn new(active: &'a mut [(V, usize)], minimal: Option<(usize, &'a [usize])>) -> Self {
         Self::with_alignment(active, minimal, 0)
+    }
+
+    pub fn with_bound(mut self, bound: usize) -> Self {
+        self.bound = Some(bound);
+        self
     }
 
     /// Initialize a mutable column iterator with an initial target alignment.
@@ -153,6 +209,7 @@ impl<'a, V> ColumnsMut<'a, V> {
             l: 0,
             isolated: true,
             align,
+            bound: None,
         }
     }
 
@@ -173,7 +230,7 @@ impl<'a, V> ColumnsMut<'a, V> {
         &mut self,
         f: F,
         state: T,
-        (c, span, r, minimal): (usize, &mut [(V, usize)], Option<usize>, ColumnIndexIter<'_>),
+        (c, span, r, minimal): (usize, &mut [(V, usize)], Option<usize>, MinIndices<'_>),
     ) -> Result<Option<usize>, F::Error>
     where
         F: Apply<T>,
@@ -181,7 +238,7 @@ impl<'a, V> ColumnsMut<'a, V> {
         let col = Alignment {
             l: self.l,
             align: self.align,
-            r,
+            r: r.or(self.bound),
             c,
         };
 
@@ -189,7 +246,7 @@ impl<'a, V> ColumnsMut<'a, V> {
 
         self.isolated &= incomplete;
 
-        self.align += extra + 1;
+        self.align += extra;
         let new_c = span.last().unwrap().1;
         self.l = c.max(new_c) + 1;
 
@@ -269,7 +326,6 @@ impl<'a, V, S> Shimmed<'a, V, S> {
     where
         S: Shim<T, Error = E>,
         F: Apply<T, Error = E>,
-        // F: FnOnce(T, Alignment, &mut [(V, usize)], ColumnIndexIter<'_>) -> Result<(usize, bool), E>,
     {
         match self.shim.take() {
             // shim does not apply since we are past it
@@ -370,12 +426,7 @@ impl<'a, V> RawColumnIter<'a, V> {
 }
 
 impl<'a, V> Iterator for RawColumnIter<'a, V> {
-    type Item = (
-        usize,
-        &'a mut [(V, usize)],
-        Option<usize>,
-        ColumnIndexIter<'a>,
-    );
+    type Item = (usize, &'a mut [(V, usize)], Option<usize>, MinIndices<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
         // swap the peeked element with the new peeked element
@@ -395,15 +446,18 @@ impl<'a, V> Iterator for RawColumnIter<'a, V> {
 
         // get the column index iterator
         let it = if self.first_minimal.is_some_and(|e| e >= self.pos) {
-            ColumnIndexIter::empty()
+            // we know there is another minimal index later
+            MinIndices::empty(true, true)
         } else {
             let first = self.first_minimal.take();
             let mut min_idx = 0;
             while min_idx < self.minimal.len() && self.minimal[min_idx] < self.pos {
                 min_idx += 1;
             }
+            // check if there are more indices
+            let last = min_idx == self.minimal.len();
             let rest = self.minimal.split_off(..min_idx).unwrap();
-            ColumnIndexIter::new(first, rest, diff)
+            MinIndices::new(first, rest, diff, false, last)
         };
 
         Some((c, current, r, it))
