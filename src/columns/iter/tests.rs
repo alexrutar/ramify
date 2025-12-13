@@ -367,3 +367,74 @@ fn shimmed() {
     // empty
     assert_shim(&[], &[], (2, '*'), &[], "  *", 0, true);
 }
+
+#[test]
+fn merge() {
+    fn assert_merge(
+        cols: &[usize],
+        minimal: impl Minimal,
+        output: &[usize],
+        expected: &str,
+        expected_alignment: usize,
+        expected_isolated: bool,
+    ) {
+        println!("Case: {cols:?} {expected}");
+
+        let mut active = trs(cols);
+        let expected_output = trs(output);
+        let mut cols_mut = super::ColumnsMut::new(&mut active, minimal.convert());
+
+        let mut target: Vec<u8> = Vec::new();
+        let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);
+
+        while cols_mut.apply(Merge, &mut writer).unwrap().is_some() {}
+
+        let status = cols_mut.status();
+
+        assert_eq!(expected, from_utf8(&target).unwrap());
+        assert_eq!(expected_output, active);
+        assert_eq!(expected_alignment, status.target_width);
+        assert_eq!(expected_isolated, status.isolated);
+    }
+
+    // basic cases
+    assert_merge(&[0, 1], &[0, 1], &[0, 1], "├╯", 1, true);
+    assert_merge(&[0, 2], &[0, 1], &[0, 2], "├─╯", 1, true);
+    assert_merge(&[0, 1, 2], &[0, 1, 2], &[0, 1, 2], "├┴╯", 1, true);
+    assert_merge(&[1, 3, 5], &[0, 1, 2], &[0, 3, 5], "╭┴─┴─╯", 1, true);
+    assert_merge(&[1, 3, 4, 5], &[0, 1, 3], &[0, 3, 4, 5], "╭┴─┴│╯", 2, true);
+    assert_merge(&[1, 2, 4, 5], &[0, 3], &[0, 2, 4, 5], "╭┴│─│╯", 3, true);
+
+    // edge cases
+    assert_merge(&[1, 3], &[0], &[0, 2], "╭╯╭╯", 2, true);
+    assert_merge(&[1, 3], &[1], &[0, 2], "╭╯╭╯", 2, true);
+    assert_merge(&[1, 3], &[], &[0, 2], "╭╯╭╯", 2, true);
+    assert_merge(&[], &[], &[], "", 0, true);
+
+    // alignment on merge target is propagated
+    assert_merge(&[1, 1, 3], &[0, 0], &[0, 0, 2], "╭╯╭╯", 3, false);
+    assert_merge(
+        &[0, 0, 0, 0, 1, 2],
+        &[0, 2, 4],
+        &[0, 0, 0, 0, 1, 4],
+        "├╯╰─╮",
+        5,
+        false,
+    );
+    assert_merge(
+        &[2, 3, 3, 3, 4, 5],
+        &[1, 3, 4],
+        &[0, 3, 3, 3, 4, 5],
+        "╭─╯├╯│",
+        5,
+        false,
+    );
+    assert_merge(
+        &[2, 3, 3, 3, 3, 3, 4, 5],
+        &[1, 3, 5, 6],
+        &[0, 3, 3, 3, 3, 3, 4, 6],
+        "╭─╯├╯╰╮",
+        7,
+        false,
+    );
+}

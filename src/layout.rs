@@ -173,15 +173,38 @@ impl<E: std::fmt::Display> std::fmt::Display for WriteVertexError<E> {
     }
 }
 
+/// Write a row which prepares for the vertex to be written.
+///
+/// This does the following:
+///
+/// 1. Make all of the vertices isolated.
+/// 2. Once isolated, merges the vertices if needed.
 fn write_preparation_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
     cols: &mut Columns<V, R, B>,
     writer: &mut DiagramWriter<W, B>,
-) -> io::Result<RowState> {
-    if cols.config().expand_all_branches {
-        cols.write_row(writer, ops::ForkGreedy)
+    state: &mut RowState,
+) -> io::Result<()> {
+    let new = if state.is_isolated() && !cols.is_merged() {
+        cols.write_merge_row(writer, ops::Merge)?
     } else {
-        cols.write_row(writer, ops::Fork)
-    }
+        cols.write_row(writer, ops::Fork)?
+    };
+    state.update(&new);
+    Ok(())
+}
+
+fn write_align_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
+    cols: &mut Columns<V, R, B>,
+    writer: &mut DiagramWriter<W, B>,
+    state: &mut RowState,
+) -> io::Result<()> {
+    let new = if state.is_isolated() && !cols.is_merged() {
+        cols.write_merge_row(writer, ops::Merge)?
+    } else {
+        cols.write_row(writer, ops::Align)?
+    };
+    state.update(&new);
+    Ok(())
 }
 
 fn write_vertex_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
@@ -190,15 +213,7 @@ fn write_vertex_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
     col: usize,
     marker_char: char,
 ) -> io::Result<RowState> {
-    if cols.config().expand_all_branches {
-        cols.write_shimmed_row(
-            writer,
-            ops::ForkGreedy,
-            (col, ops::MarkerGreedy(marker_char)),
-        )
-    } else {
-        cols.write_shimmed_row(writer, ops::Fork, (col, ops::Marker(marker_char)))
-    }
+    cols.write_shimmed_row(writer, ops::Fork, (col, ops::Marker(marker_char)))
 }
 
 impl<E: std::error::Error> std::error::Error for WriteVertexError<E> {}
@@ -305,11 +320,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     where
         R: TryRamify<V>,
     {
+        let mut writer = DiagramWriter::new(writer);
+
         let Some(min_idx) = self.columns.minimal() else {
             return Ok(false);
         };
-
-        let mut writer = DiagramWriter::<W, B>::new(writer);
 
         // perform the substitution first since we will use information
         // about the next minimal element in order to make predictive writes
@@ -336,7 +351,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
                 // write the remaining annotation lines
                 for line in lines {
-                    state |= write_preparation_row(&mut self.columns, &mut writer)?;
+                    write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                     writer.write_annotation(line, &state)?;
                 }
             }
@@ -350,12 +365,12 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         } else {
             let mut padding = self.config().row_padding;
             while padding > 0 {
-                state |= write_preparation_row(&mut self.columns, &mut writer)?;
+                write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                 writer.write_newline()?;
                 padding -= 1;
             }
             while !state.is_ready() {
-                state |= write_preparation_row(&mut self.columns, &mut writer)?;
+                write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                 writer.write_newline()?;
             }
             Ok(true)
@@ -385,7 +400,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         if self.prev.is_some() {
             let mut padding = self.config().row_padding;
             while padding > 0 {
-                state |= write_preparation_row(&mut self.columns, &mut writer)?;
+                write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                 writer.write_newline()?;
                 padding -= 1;
             }
@@ -393,12 +408,11 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
         // make the minimal index a singleton so that the vertex row can be written.
         while !state.is_ready() {
-            state |= write_preparation_row(&mut self.columns, &mut writer)?;
+            write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
             writer.write_newline()?;
         }
 
         // get all of the data for the minimal vertex
-        let marker_char = self.columns.marker_char(min_idx);
         self.annotation_buf.clear();
         self.columns
             .buffer_annotation(min_idx, &mut self.annotation_buf);
@@ -407,51 +421,45 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         let mut lines = self.annotation_buf.lines();
         let maybe_last_line = lines.next();
 
-        // compute the annotation alignment based on the gutter width
-
         match maybe_last_line {
             None => {
-                // no annotation
-
                 // substitute and update minimal index
-                let col = self.columns.col(min_idx);
-                self.columns
+                let (col, marker_char) = self
+                    .columns
                     .substitute(min_idx)
                     .map_err(WriteVertexError::TryChildrenFailed)?;
                 let state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
                 self.prev = Some(state);
 
                 writer.write_newline()?;
-                Ok(!self.columns.is_empty())
             }
             Some(last_line) => {
                 // write all of the preceding annotation lines
                 for line in lines.rev() {
                     if self.prev.is_some() {
-                        state |= self.columns.write_row(&mut writer, ops::Preserve)?;
+                        write_align_row(&mut self.columns, &mut writer, &mut state)?;
                     }
                     writer.write_annotation(line, &state)?;
                 }
 
-                // substitute and update minimal index
-                let col = self.columns.col(min_idx);
-
-                self.columns
+                let (col, marker_char) = self
+                    .columns
                     .substitute(min_idx)
                     .map_err(WriteVertexError::TryChildrenFailed)?;
                 // write the last line
-                let new_state = self.columns.write_shimmed_row(
+                let new_state = self.columns.write_bounded_shimmed_row(
                     &mut writer,
-                    ops::Preserve,
+                    ops::Align,
+                    state.alignment().1,
                     (col, ops::Marker(marker_char)),
                 )?;
-                state |= new_state;
+                state.update(&new_state);
                 writer.write_annotation(last_line, &state)?;
 
                 self.prev = Some(new_state);
-                Ok(!self.columns.is_empty())
             }
         }
+        Ok(!self.columns.is_empty())
     }
 
     /// The index of the final `open` edge, or `None` if there are no edges.

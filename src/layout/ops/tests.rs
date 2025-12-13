@@ -79,13 +79,13 @@ fn assert_fork(
             &mut writer,
             col,
             &mut input_t,
-            crate::columns::ColumnIndexIter::new(x, y, 0),
+            crate::columns::MinIndices::new(x, y, 0, true, true),
         )
         .unwrap();
 
     assert_eq!(expected, from_utf8(&target).unwrap());
     assert_eq!(output_t, input_t);
-    assert_eq!(idx, new, "alignment");
+    assert_eq!(idx + 1, new, "alignment");
     assert_eq!(expect_isolated, isolated, "isolation");
 }
 

@@ -47,7 +47,7 @@
 //! ```
 mod branch;
 
-pub use self::branch::{Branch, branch_writer};
+pub use self::branch::{Branch, MergeBranch, branch_writer};
 
 use std::{fmt, io, marker::PhantomData};
 
@@ -77,7 +77,6 @@ use std::{fmt, io, marker::PhantomData};
 /// Note that the width numbers may be in terms of gutters rather than characters. If the gutter width
 /// is 0, this is the the same as the character width. In general, if the width is `n`, the
 /// resulting number of characters is `(gutter_width + 1) * n`.
-#[derive(Debug)]
 pub struct Config<B> {
     /// Extra padding between vertices. The padding applies after the annotation, or after the
     /// vertex if there is no annotation. This is the number of rows. The default is `0`.
@@ -92,11 +91,18 @@ pub struct Config<B> {
     /// marker will occupy the minimal number of columns possible and there will be no internal
     /// whitespace. This almost always makes the diagram taller. The default value is `false`.
     pub minimize_width: bool,
-    /// When forking a branch before writing a vertex, whether to expand all other vertex branches
-    /// as well. If `false`, only the branch corresponding to the vertex is expanded; if
-    /// true, all branches are expanded simultaneously. The default value is `false`.
-    pub expand_all_branches: bool,
     branch_writer: PhantomData<B>,
+}
+
+impl<B> fmt::Debug for Config<B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("row_padding", &self.row_padding)
+            .field("annotation_margin", &self.annotation_margin)
+            .field("min_diagram_width", &self.min_diagram_width)
+            .field("minimize_width", &self.minimize_width)
+            .finish()
+    }
 }
 
 // standalone impl since the derived impl adds a bound on `B`
@@ -107,7 +113,6 @@ impl<B> Clone for Config<B> {
             annotation_margin: self.annotation_margin,
             min_diagram_width: self.min_diagram_width,
             minimize_width: self.minimize_width,
-            expand_all_branches: self.expand_all_branches,
             branch_writer: PhantomData,
         }
     }
@@ -120,7 +125,6 @@ impl<B> PartialEq for Config<B> {
             && self.annotation_margin == other.annotation_margin
             && self.min_diagram_width == other.min_diagram_width
             && self.minimize_width == other.minimize_width
-            && self.expand_all_branches == other.expand_all_branches
     }
 }
 
@@ -147,7 +151,6 @@ impl<B> Config<B> {
             annotation_margin: 1,
             min_diagram_width: 0,
             minimize_width: false,
-            expand_all_branches: false,
             branch_writer: PhantomData,
         }
     }
@@ -162,7 +165,6 @@ impl<B> Config<B> {
             annotation_margin: self.annotation_margin,
             min_diagram_width: self.min_diagram_width,
             minimize_width: self.minimize_width,
-            expand_all_branches: self.expand_all_branches,
             branch_writer: PhantomData,
         }
     }
@@ -232,7 +234,7 @@ pub(crate) struct DiagramWriter<W, B> {
     /// Configuration used when drawing the branch diagram.
     writer: W,
     non_empty: bool,
-    queued_whitespace: usize,
+    queued_fill: usize,
     marker: PhantomData<B>,
 }
 
@@ -242,33 +244,43 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
         Self {
             writer,
             non_empty: false,
-            queued_whitespace: 0,
+            queued_fill: 0,
             marker: PhantomData,
         }
     }
 
     #[inline]
-    fn resolve_whitespace(&mut self) -> usize {
-        // let extra_ws = if self.start { 0 } else { B::GUTTER_WIDTH };
+    fn resolve_fill(&mut self) -> usize {
+        // this is equivalent to:
+        //   let extra_ws = if self.start { 0 } else { B::GUTTER_WIDTH };
         let extra_ws = B::GUTTER_WIDTH * (self.non_empty as usize);
-        let ws = extra_ws + (1 + B::GUTTER_WIDTH) * self.queued_whitespace;
+        let ws = extra_ws + (1 + B::GUTTER_WIDTH) * self.queued_fill;
 
-        self.queued_whitespace = 0;
+        self.queued_fill = 0;
         ws
     }
 
     /// Write a [`Branch`].
     #[inline]
     pub(crate) fn write_branch(&mut self, b: Branch) -> io::Result<()> {
-        let ws = self.resolve_whitespace();
+        let ws = self.resolve_fill();
         self.non_empty = true;
 
         B::write_branch(|args| self.writer.write_fmt(args), ws, b)
     }
 
+    /// Write a [`MergeBranch`].
     #[inline]
-    pub(crate) fn queue_blank(&mut self, n: usize) {
-        self.queued_whitespace += n;
+    pub(crate) fn write_merge_branch(&mut self, m: MergeBranch) -> io::Result<()> {
+        let tr = self.resolve_fill();
+        self.non_empty = true;
+
+        B::write_merge_branch(|args| self.writer.write_fmt(args), tr, m)
+    }
+
+    #[inline]
+    pub(crate) fn queue_fill(&mut self, n: usize) {
+        self.queued_fill += n;
     }
 
     fn to_width(gutters: usize) -> usize {
@@ -287,7 +299,6 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     ) -> io::Result<()> {
         let (margin, alignment, width) = row_state.alignment();
         let alignment = Self::to_width(alignment);
-
         let width = Self::to_width(width);
 
         writeln!(
@@ -306,7 +317,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
     #[inline]
     pub(crate) fn write_newline(&mut self) -> io::Result<()> {
         self.non_empty = false;
-        self.queued_whitespace = 0;
+        self.queued_fill = 0;
         writeln!(&mut self.writer)
     }
 }
@@ -345,7 +356,8 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// The responsiblity of a branch writer is write the individual components of the branch diagram.
 /// However, a branch writer knows nothing about the current state: the state itself is held by
 /// the [`Generator`](crate::Generator) which then requests the relevant text from the branch
-/// writer. These requests take the form of [`Branch`]es, which represent the components used in the diagram. The branch writer satisfies a request in the [`write_branch`](WriteBranch::write_branch) function.
+/// writer. These requests take the form of [`Branch`]es and [`MergeBranch`]es, which represent the components
+/// used in the diagram. The branch writer satisfies the requests in the [`write_branch`](WriteBranch::write_branch) and [`write_merge_branch`](WriteBranch::write_merge_branch) functions.
 ///
 /// For performance reasons, instead of working directly with a [writer](io::Write), the
 /// implementation is requested to generate a format template which is immediately passed to a
@@ -356,7 +368,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// A prototypical example implementation the following.
 /// ```
 /// use std::{fmt, io};
-/// use ramify::writer::{Branch, WriteBranch};
+/// use ramify::writer::{Branch, MergeBranch, WriteBranch};
 ///
 /// struct MyCustomStyle;
 ///
@@ -381,11 +393,14 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///         }
 ///     }
 ///
-///     fn write_traverse<F>(mut f: F, count: usize) -> ::std::io::Result<()>
+///     fn write_merge_branch<F>(mut f: F, tr: usize, m: MergeBranch) -> ::std::io::Result<()>
 ///     where
 ///         F: for<'a> FnMut(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
 ///     {
-///         f(format_args!("{:─>tr$}", "", tr = count))
+///         match m {
+///             MergeBranch::Join => f(format_args!("{:─>tr$}┴", "", tr = tr)),
+///             _ => todo!(),
+///         }
 ///     }
 /// }
 /// ```
@@ -427,7 +442,7 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 /// spacers in `shift`.
 /// ```
 /// use std::{fmt, io};
-/// use ramify::writer::{Branch, WriteBranch};
+/// use ramify::writer::{Branch, MergeBranch, WriteBranch};
 ///
 /// struct MyCustomStyle;
 ///
@@ -454,11 +469,16 @@ impl<W: io::Write, B: WriteBranch> DiagramWriter<W, B> {
 ///         }
 ///     }
 ///
-///     fn write_traverse<F>(mut f: F, mut count: usize) -> ::std::io::Result<()>
+///     fn write_merge_branch<F>(mut f: F, tr: usize, m: MergeBranch) -> ::std::io::Result<()>
 ///     where
 ///         F: for<'a> FnMut(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
 ///     {
-///         f(format_args!("{:─>tr$}", "", tr = 3 * count + 2))
+///         match m {
+///             // like the `ws` parameter, the `tr` parameter is automatically normalized
+///             // correctly
+///             MergeBranch::Cross => f(format_args!("{:─>tr$}│", "", tr = tr)),
+///             _ => todo!(),
+///         }
 ///     }
 /// }
 /// ```
@@ -479,26 +499,8 @@ pub trait WriteBranch {
     where
         F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()>;
 
-    /// Write a traversing horizontal line which crosses other lines without intersecting.
-    ///
-    /// The count is the number of lines that are crossed. A gutter should also be written on the
-    /// left and the right of each crossed line. If the count is 0, a single gutter should be
-    /// written.
-    ///
-    /// # Examples
-    ///
-    /// If the gutter width is 1, a reasonable choice would be the following:
-    ///
-    /// - `count = 0`: `─`
-    /// - `count = 1`: `─│─`
-    /// - `count = 2`: `─│─│─`
-    ///
-    /// The traverse can also pass 'over' the vertical lines:
-    ///
-    /// - `count = 0`: `─`
-    /// - `count = 1`: `───`
-    /// - `count = 2`: `─────`
-    fn write_traverse<F>(f: F, count: usize) -> io::Result<()>
+    /// Write a single merge branch to the provided writer, prefixed by `tr` traversing characters.
+    fn write_merge_branch<F>(f: F, tr: usize, m: MergeBranch) -> io::Result<()>
     where
         F: for<'a> FnMut(fmt::Arguments<'a>) -> io::Result<()>;
 }

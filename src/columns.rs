@@ -45,9 +45,9 @@
 //! ```
 mod iter;
 
-use std::{iter::repeat, ops::BitOrAssign};
+use std::iter::repeat;
 
-pub use iter::{Alignment, Apply, ColumnIndexIter, ColumnsMut, Gap, Shim, Status};
+pub use iter::{Alignment, Apply, ColumnsMut, Gap, MinIndices, Position, Shim, Status};
 
 use crate::{Replacement, TryRamify, writer::Config};
 
@@ -61,24 +61,67 @@ pub struct RowState {
     width: usize,
     /// The padding.
     margin: usize,
+    /// Whether every minimal index is isolated.
+    isolated: bool,
     /// Whether or not the row is ready for a vertex to be written.
     ready: bool,
 }
 
-impl BitOrAssign for RowState {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.ready |= rhs.ready;
-        self.width = rhs.width;
-    }
-}
-
 impl RowState {
+    pub fn update(&mut self, other: &RowState) {
+        self.isolated = other.isolated;
+        self.ready = other.ready;
+        self.width = other.width;
+    }
+
     pub fn alignment(&self) -> (usize, usize, usize) {
         (self.margin, self.alignment, self.width)
     }
 
+    pub fn is_isolated(&self) -> bool {
+        self.isolated
+    }
+
     pub fn is_ready(&self) -> bool {
         self.ready
+    }
+}
+
+pub struct DebugCols<'a, V, R, B>(&'a Columns<V, R, B>);
+
+impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugCols<'a, V, R, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(
+                self.0
+                    .columns
+                    .iter()
+                    .map(|(v, c)| (self.0.ramifier.marker(v), c)),
+            )
+            .finish()
+    }
+}
+
+pub struct DebugMinimal<'a, V, R, B>(&'a Columns<V, R, B>);
+
+impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugMinimal<'a, V, R, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(idx) = self.0.min_index {
+            std::fmt::Debug::fmt(&Some((idx, &self.0.equivalent_to_min)), f)
+        } else {
+            std::fmt::Debug::fmt(&None::<()>, f)
+        }
+    }
+}
+
+pub struct DebugActive<'a, V, R, B>(&'a Columns<V, R, B>);
+
+impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugActive<'a, V, R, B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Active")
+            .field("columns", &DebugCols(self.0))
+            .field("minimal", &DebugMinimal(self.0))
+            .finish()
     }
 }
 
@@ -91,6 +134,7 @@ pub struct Columns<V, R, B> {
     //
     // `min_index.is_none()` iff `columns.is_empty()`
     min_index: Option<usize>,
+    equivalent_to_min: Vec<usize>,
     ramifier: R,
     config: Config<B>,
 }
@@ -102,6 +146,7 @@ impl<V, R, B> Columns<V, R, B> {
             columns: vec![(root, 0)],
             ramifier,
             min_index: Some(0),
+            equivalent_to_min: Vec::new(),
             config,
         }
     }
@@ -126,6 +171,10 @@ impl<V, R, B> Columns<V, R, B> {
         self.min_index.is_none()
     }
 
+    pub fn is_merged(&self) -> bool {
+        self.equivalent_to_min.is_empty()
+    }
+
     /// Recover the active vertices.
     pub fn into_active_vertices(self) -> impl ExactSizeIterator<Item = V> {
         self.columns.into_iter().map(|(v, _)| v)
@@ -144,6 +193,7 @@ impl<V, R, B> Columns<V, R, B> {
     /// Shrink internal allocations to be as small as possible.
     pub fn shrink_to_fit(&mut self) {
         self.columns.shrink_to_fit();
+        self.equivalent_to_min.shrink_to_fit();
     }
 
     /// The row state before the first row has been written.
@@ -152,22 +202,21 @@ impl<V, R, B> Columns<V, R, B> {
             alignment: 1,
             width: 0,
             margin: self.config.annotation_margin,
+            isolated: true,
             ready: true,
         }
     }
 
     /// Convert the status to a state report.
     fn state(&self, status: Status) -> RowState {
-        let ready = if self.config.minimize_width {
-            // we wait until the final column aligns with the target width
-            self.max_edge_index()
-                .is_none_or(|c| status.isolated && status.target_width == c + 1)
-            // dbg!(&status);
-            // dbg!(self.max_edge_index());
-            // status.isolated
-        } else {
-            status.isolated
-        };
+        let ready = self.equivalent_to_min.is_empty()
+            && if self.config.minimize_width {
+                // we wait until the final column aligns with the target width
+                self.max_edge_index()
+                    .is_none_or(|c| status.isolated && status.target_width == c + 1)
+            } else {
+                status.isolated
+            };
         let alignment = status.reserved_width().max(self.config.min_diagram_width);
         let width = status.width;
 
@@ -175,8 +224,17 @@ impl<V, R, B> Columns<V, R, B> {
             alignment,
             width,
             margin: self.config.annotation_margin,
+            isolated: status.isolated,
             ready,
         }
+    }
+
+    #[allow(unused)]
+    pub fn debug_active(&self) -> impl std::fmt::Debug
+    where
+        R: TryRamify<V>,
+    {
+        DebugActive(self)
     }
 }
 
@@ -210,17 +268,20 @@ impl<V, R, B> Columns<V, R, B> {
 
     /// Substitute the vertex at the provided index, replacing it with its children and
     /// recomputing the minimal index.
-    pub fn substitute(&mut self, idx: usize) -> Result<(), R::Error>
+    ///
+    /// This returns the column at the index as well as the corresponding marker.
+    pub fn substitute(&mut self, idx: usize) -> Result<(usize, char), R::Error>
     where
         R: TryRamify<V>,
     {
         // in order to optimize substitutions, we temporarily swap indices
         // into the target, and then swap back at the end
-        if idx + 1 == self.columns.len() {
+        let (col, marker_char) = if idx + 1 == self.columns.len() {
             // the minimal index is at the end
 
-            // remove the last element
+            // remove the minimal element
             let (vtx, col) = self.columns.pop().unwrap();
+            let marker_char = self.ramifier.marker(&vtx);
 
             // determine the data associated with the element
             let maybe_children = self.ramifier.try_ramify(vtx);
@@ -240,9 +301,12 @@ impl<V, R, B> Columns<V, R, B> {
                 // append the new elements
                 self.columns.extend(children.into_iter().zip(repeat(col)));
             };
+
+            (col, marker_char)
         } else {
             // temporarily swap the minimal element with the last element
             let (vtx, col) = self.columns.swap_remove(idx);
+            let marker_char = self.ramifier.marker(&vtx);
 
             let maybe_children = self.ramifier.try_ramify(vtx);
 
@@ -271,8 +335,11 @@ impl<V, R, B> Columns<V, R, B> {
                 // put the last element back
                 self.columns.push(last);
             };
+
+            (col, marker_char)
         };
 
+        // recompute the minimal index
         self.min_index = self
             .columns
             .iter()
@@ -280,7 +347,28 @@ impl<V, R, B> Columns<V, R, B> {
             .min_by_key(|(_, (e, _))| self.ramifier.sort_key(e))
             .map(|(a, _)| a);
 
-        Ok(())
+        // find equivalent indices
+        if let Some(min_idx) = self.min_index {
+            self.equivalent_to_min.clear();
+            for idx in min_idx + 1..self.columns.len() {
+                if self
+                    .ramifier
+                    .is_identical(&self.columns[min_idx].0, &self.columns[idx].0)
+                {
+                    self.equivalent_to_min.push(idx)
+                }
+            }
+        }
+
+        Ok((col, marker_char))
+    }
+
+    /// Get a mutable column iterator holding the minimal indices.
+    fn columns_mut(&mut self) -> ColumnsMut<'_, V> {
+        ColumnsMut::new(
+            &mut self.columns,
+            self.min_index.map(|i| (i, &self.equivalent_to_min[..])),
+        )
     }
 
     /// Write a single row by applying the provided operation to every column.
@@ -288,7 +376,7 @@ impl<V, R, B> Columns<V, R, B> {
     where
         A: for<'a> Apply<&'a mut T, Error = E> + Copy,
     {
-        let mut col_iter = ColumnsMut::new(&mut self.columns, self.min_index.map(|i| (i, &[][..])));
+        let mut col_iter = self.columns_mut();
         while col_iter.apply(op, state)?.is_some() {}
         let status = col_iter.status();
         Ok(self.state(status))
@@ -306,10 +394,64 @@ impl<V, R, B> Columns<V, R, B> {
         A: for<'a> Apply<&'a mut T, Error = E> + Copy,
         S: for<'a> Shim<&'a mut T, Error = E>,
     {
-        let mut col_iter = ColumnsMut::new(&mut self.columns, self.min_index.map(|i| (i, &[][..])))
-            .with_shim(shim);
+        let mut col_iter = self.columns_mut().with_shim(shim);
         while col_iter.apply(op, state)?.is_some() {}
         let status = col_iter.cols().status();
+        Ok(self.state(status))
+    }
+
+    /// Write a single row by applying the provided operation to every column, with a shim at a
+    /// specific index.
+    pub fn write_bounded_shimmed_row<T, A, S, E>(
+        &mut self,
+        state: &mut T,
+        op: A,
+        bound: usize,
+        shim: (usize, S),
+    ) -> Result<RowState, E>
+    where
+        A: for<'a> Apply<&'a mut T, Error = E> + Copy,
+        S: for<'a> Shim<&'a mut T, Error = E>,
+    {
+        let mut col_iter = self.columns_mut().with_bound(bound).with_shim(shim);
+        while col_iter.apply(op, state)?.is_some() {}
+        let status = col_iter.cols().status();
+        Ok(self.state(status))
+    }
+
+    /// Clear all vertices which are equivalent to the minimal vertex.
+    fn clear_equivalent(&mut self)
+    where
+        R: TryRamify<V>,
+    {
+        let mut min_i = 0;
+        self.columns = std::mem::take(&mut self.columns)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, (v, c))| {
+                if self.equivalent_to_min.get(min_i).is_some_and(|m| *m == i) {
+                    min_i += 1;
+                    self.ramifier.cleanup(v);
+                    None
+                } else {
+                    Some((v, c))
+                }
+            })
+            .collect();
+        self.equivalent_to_min.clear();
+    }
+
+    /// Write a single row by applying the provided operation to every column, and then deleting
+    /// the merged indices.
+    pub fn write_merge_row<T, A, E>(&mut self, state: &mut T, op: A) -> Result<RowState, E>
+    where
+        A: for<'a> Apply<&'a mut T, Error = E> + Copy,
+        R: TryRamify<V>,
+    {
+        let mut col_iter = self.columns_mut();
+        while col_iter.apply(op, state)?.is_some() {}
+        let status = col_iter.status();
+        self.clear_equivalent();
         Ok(self.state(status))
     }
 }

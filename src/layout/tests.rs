@@ -1,6 +1,7 @@
 mod branch_macro;
 mod config;
 mod fallible;
+mod merge;
 mod multiline;
 mod reverse;
 mod single;
@@ -43,7 +44,6 @@ fn assert_diag_impl<R: for<'a> Ramify<&'a Vtx<char>>, B: WriteBranch>(
     println!("\nExpecting tree:\n{expected}");
 
     let mut writer: Vec<u8> = Vec::new();
-    // let mut writer = Writer::new(config, &mut output);
     let mut cols = Generator::init(&root, ramifier, config);
     while cols.write_vertex(&mut writer).unwrap() {}
 

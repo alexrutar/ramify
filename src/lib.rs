@@ -186,7 +186,8 @@ pub trait Ramify<V> {
     /// Unlike [`sort_key`](Ramify::sort_key), this method should check that the
     /// vertices are exactly the same. What this means depends on the vertex type, but
     /// this might look like [`Rc::ptr_eq`](std::rc::Rc::ptr_eq), or like comparison of a `usize`
-    /// index for flattened graph-like structures.
+    /// index for flattened graph-like structures, or comparison of uniquely-defining metadata
+    /// (like a Git commit hash).
     #[allow(unused)]
     #[inline]
     fn is_identical(&self, vtx: &V, other: &V) -> bool {

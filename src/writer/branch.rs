@@ -1,4 +1,4 @@
-/// A single component used when drawing a branch diagram.
+/// A single component used when drawing a part of the diagram outside a merge.
 ///
 /// See the documentation for [`WriteBranch`](crate::writer::WriteBranch) for more detail on when
 /// this struct is expected.
@@ -31,16 +31,35 @@ pub enum Branch {
     /// The first field is the number of `┬` forks on the left, and the second is the
     /// number of `┬` forks on the right.
     ForkMiddle(usize, usize),
-    /// A `╯` left merge starter.
-    MergeLeft,
-    /// A `┴` central merge joiner.
-    MergeCenter,
-    /// A `╰` right merge starter.
-    MergeRight,
-    /// A `│` or `─` traverse.
+    /// A `├` merge starter.
+    MergeStart,
+    /// A `╭┬─┴` left shift fork merge starter.
     ///
-    /// This is a horizontal line crossing a vertical line.
-    Traverse,
+    /// The first field is the number of `─` horizontal spacers and the second field is the number
+    /// of forks.
+    ShiftForkLeftMergeStart(usize, usize),
+    /// A `╰─┬┬` right shift fork merge starter.
+    ///
+    /// The first field is the number of `─` horizontal spacers and the second field is the number of
+    /// forks.
+    ShiftForkRightMergeStart(usize, usize),
+}
+
+/// A single component used when drawing a part of the diagram within a merge.
+///
+/// See the documentation for [`WriteBranch`](crate::writer::WriteBranch) for more detail on when
+/// this struct is expected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeBranch {
+    /// A `┴` central merge joiner.
+    Join,
+    /// A `│` or `─` crossing.
+    ///
+    /// This is a horizontal line crossing a vertical line, used when a merge line must pass over
+    /// another line.
+    Cross,
+    /// A `╯` merge end.
+    End,
 }
 
 impl Branch {
@@ -52,11 +71,12 @@ impl Branch {
     ///     let base_width = match b {
     ///          Branch::Continue
     ///          | Branch::Marker(_)
-    ///          | Branch::MergeLeft
-    ///          | Branch::MergeCenter
-    ///          | Branch::MergeRight
-    ///          | Branch::Traverse => 1,
-    ///         Branch::ShiftForkLeft(shift, fork) | Branch::ShiftForkRight(shift, fork) => 2 + shift + fork,
+    ///          | Branch::MergeStart => 1,
+    ///         Branch::ShiftForkLeft(shift, fork)
+    ///         | Branch::ShiftForkRight(shift, fork)
+    ///         | Branch::ShiftForkLeftMergeStart(shift, fork)
+    ///         | Branch::ShiftForkRightMergeStart(shift, fork)
+    ///         => 2 + shift + fork,
     ///         Branch::ForkLeft(fork) | Branch::ForkRight(fork) => 2 + fork,
     ///         Branch::ForkMiddle(l, r) => 3 + l + r,
     ///     };
@@ -68,62 +88,17 @@ impl Branch {
     /// ```
     pub const fn width(&self, gutter_width: usize) -> usize {
         let base_width = match self {
-            Branch::Continue
-            | Branch::Marker(_)
-            | Branch::MergeLeft
-            | Branch::MergeCenter
-            | Branch::MergeRight
-            | Branch::Traverse => 1,
-            Branch::ShiftForkLeft(shift, fork) | Branch::ShiftForkRight(shift, fork) => {
+            Branch::Continue | Branch::Marker(_) | Branch::MergeStart => 1,
+            Branch::ShiftForkLeft(shift, fork)
+            | Branch::ShiftForkRight(shift, fork)
+            | Branch::ShiftForkLeftMergeStart(shift, fork)
+            | Branch::ShiftForkRightMergeStart(shift, fork) => {
                 shift.wrapping_add(*fork).wrapping_add(2)
             }
             Branch::ForkLeft(fork) | Branch::ForkRight(fork) => fork.wrapping_add(2),
             Branch::ForkMiddle(l, r) => l.wrapping_add(*r).wrapping_add(3),
         };
         base_width + (base_width - 1) * gutter_width
-    }
-
-    /// A convenience function to move the left hand alignment by a given amount and then perform
-    /// the fork.
-    ///
-    /// The first argument is the relative left alignment: how many characters to the left the
-    /// entire group should move. The second argument is the number of new branches.
-    ///
-    /// To align right, use [`Branch::ShiftForkRight`].
-    ///
-    /// # Examples
-    /// ```
-    /// use ramify::writer::Branch;
-    ///
-    /// // ╭┬┼┬┬╮
-    /// assert_eq!(Branch::align_left_and_fork(2, 5), Branch::ForkMiddle(1, 2));
-    ///
-    /// // │
-    /// assert_eq!(Branch::align_left_and_fork(0, 0), Branch::Continue);
-    /// // ╭┬┬┤
-    /// assert_eq!(Branch::align_left_and_fork(3, 3), Branch::ForkLeft(2));
-    ///
-    /// // ╭┬─╯
-    /// assert_eq!(Branch::align_left_and_fork(3, 1), Branch::ShiftForkLeft(1, 1));
-    ///
-    /// // ├╮
-    /// assert_eq!(Branch::align_left_and_fork(0, 1), Branch::ForkRight(0));
-    /// ```
-    pub const fn align_left_and_fork(align: usize, forks: usize) -> Self {
-        if align == 0 {
-            match forks.checked_sub(1) {
-                None => Branch::Continue,
-                Some(n) => Branch::ForkRight(n),
-            }
-        } else if align < forks {
-            Branch::ForkMiddle(align - 1, forks - align - 1)
-        } else if align == forks {
-            // forks > 0 since align > 0
-            Branch::ForkLeft(forks - 1)
-        } else {
-            // align > forks
-            Branch::ShiftForkLeft(align - forks - 1, forks)
-        }
     }
 }
 
@@ -221,7 +196,7 @@ macro_rules! branch_writer {
                                 shift = ($gutter_width + 1) * shift + $gutter_width
                         ))
                     }
-                    $crate::writer::Branch::Continue | $crate::writer::Branch::Traverse => f(::std::format_args!(::std::concat!("{:>ws$}", $ns), "", ws = ws)),
+                    $crate::writer::Branch::Continue => f(::std::format_args!(::std::concat!("{:>ws$}", $ns), "", ws = ws)),
                     $crate::writer::Branch::ShiftForkRight(shift, fork) => {
                         f(::std::format_args!(
                             ::std::concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}"),
@@ -299,17 +274,49 @@ macro_rules! branch_writer {
                         }
                         f(::std::format_args!($sw))
                     }
-                    $crate::writer::Branch::MergeLeft => f(::std::format_args!(::std::concat!("{:>ws$}", $ew), "", ws = ws)),
-                    $crate::writer::Branch::MergeCenter => f(::std::format_args!(::std::concat!("{:>ws$}", $new), "", ws = ws)),
-                    $crate::writer::Branch::MergeRight => f(::std::format_args!(::std::concat!("{:>ws$}", $ne), "", ws = ws)),
+                    $crate::writer::Branch::MergeStart => f(::std::format_args!(::std::concat!("{:>ws$}", $nse), "", ws = ws)),
+                    $crate::writer::Branch::ShiftForkLeftMergeStart(shift, fork) => {
+                        f(::std::format_args!(::std::concat!("{:>ws$}", $se), "", ws = ws))?;
+                        for _ in 0..fork {
+                            f(::std::format_args!(::std::concat!("{:", $ew, ">w$}", $sew), "", w = $gutter_width))?;
+                        }
+                        f(::std::format_args!(
+                                ::std::concat!("{:", $ew, ">shift$}", $new),
+                                "",
+                                shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))
+                    }
+                    $crate::writer::Branch::ShiftForkRightMergeStart(shift, fork) => {
+                        f(::std::format_args!(
+                            ::std::concat!("{:>ws$}", $ne, "{:", $ew, ">shift$}"),
+                            "",
+                            "",
+                            ws = ws,
+                            shift = ($gutter_width + 1) * shift + $gutter_width
+                        ))?;
+                        for _ in 0..fork {
+                            f(::std::format_args!(::std::concat!($sew, "{:", $ew, ">w$}"), "", w = $gutter_width))?;
+                        }
+                        f(::std::format_args!($sew))
+                    }
                 }
             }
 
-            fn write_traverse<F>(mut f: F, count: usize) -> ::std::io::Result<()>
+            fn write_merge_branch<F>(mut f: F, tr: usize, m: $crate::writer::MergeBranch) -> ::std::io::Result<()>
             where
                 F: for<'a> FnMut(::std::fmt::Arguments<'a>) -> ::std::io::Result<()>,
             {
-                f(::std::format_args!(::std::concat!("{:", $ew, ">tr$}"), "", tr = $gutter_width * (count + 1) + count))
+                match m {
+                    $crate::writer::MergeBranch::Join  => {
+                        f(::std::format_args!(::std::concat!("{:", $ew, ">tr$}", $new), "", tr = tr))
+                    }
+                    $crate::writer::MergeBranch::Cross  => {
+                        f(::std::format_args!(::std::concat!("{:", $ew, ">tr$}", $ns), "", tr = tr))
+                    }
+                    $crate::writer::MergeBranch::End  => {
+                        f(::std::format_args!(::std::concat!("{:", $ew, ">tr$}", $nw), "", tr = tr))
+                    }
+                }
             }
         }
     };

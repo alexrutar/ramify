@@ -23,6 +23,12 @@ name = "basic"
 name = "cascade"
 
 [[example]]
+name = "cascade_merge"
+
+[[example]]
+name = "merge"
+
+[[example]]
 name = "inverted"
 
 [[example]]
