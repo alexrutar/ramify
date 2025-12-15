@@ -6,8 +6,6 @@ mod multiline;
 mod reverse;
 mod single;
 
-use std::fmt::{self, Write};
-
 use crate::{Config, writer::WriteBranch};
 
 use super::*;

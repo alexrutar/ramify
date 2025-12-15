@@ -1,4 +1,4 @@
-use crate::Replacement;
+use crate::Failed;
 
 use super::*;
 
@@ -7,15 +7,26 @@ struct Ramifier;
 impl<'t> TryRamify<&'t Vtx<char>> for Ramifier {
     type Error = ();
 
+    type Placeholder = &'t Vtx<char>;
+
     fn try_ramify(
         &mut self,
         vtx: &'t Vtx<char>,
-    ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, Replacement<&'t Vtx<char>>> {
+    ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, Failed<&'t Vtx<char>>> {
+        // replace vertex '2' with its first child
         if vtx.data == '2' {
             Err(vtx.children.iter().next().unwrap().into())
         } else {
             Ok(vtx.children.iter())
         }
+    }
+
+    fn retry_ramify(
+        &mut self,
+        prev: Self::Placeholder,
+    ) -> Result<impl IntoIterator<Item = &'t Vtx<char>>, Failed<Self::Placeholder, Self::Error>>
+    {
+        Ok(Some(prev))
     }
 
     fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {

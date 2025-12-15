@@ -2,7 +2,7 @@ pub(crate) mod ops;
 #[cfg(test)]
 pub(crate) mod tests;
 
-use std::io;
+use std::{convert::Infallible, io};
 
 use crate::{
     Config, Ramify, TryRamify,
@@ -79,43 +79,42 @@ pub(crate) use crate::columns::RowState;
 /// management takes place in the [`Ramify`] or [`TryRamify`] implementation. This occurs in two
 /// places:
 ///
-/// - When computing the children of a vertex, ownership
-/// - If the vertex
+/// - When computing the children of a vertex, ownership is passed to the [`Ramify::ramify`]
+///   function call.
+/// - If the vertex is identical to the minimal vertex, it is passed to [`Ramify::cleanup`].
 ///
-/// If you drop a
-/// generator, the list of active vertices will be de-allocated. You can recover the list of active vertices using [`into_active_vertices`](Self::into_active_vertices).
-///
-/// If [`Ramify::is_identical`] returns true, the vertex `other` will be dropped.
+/// If you drop a generator, the active vertices will be de-allocated. You can recover the
+/// active vertices using [`into_active_vertices`](Self::into_active_vertices).
 ///
 /// ### Runtime and memory complexity
 ///
 /// The branch diagram generator holds the minimal possible state required to generate the diagram.
-/// This state is essentially the active vertices plus additional metadata concerning the column to which the vertex belongs in the diagram.
-/// More precisely, the memory usage is `(4 + size_of<V>) * num_active_vertices` plus a constant
-/// if you do not write annotations.
+/// This state is essentially the active vertices plus additional metadata concerning the column to which the vertex belongs in the diagram and whether the vertex is minimal.
+/// More precisely, the memory usage is `(8 + size_of<V>) * num_active_vertices`,
+/// plus the maximum size of a single annotation, plus a constant.
 ///
-/// Writing a branch diagram row only requires making a single pass over the list of vertices.
+/// Writing a branch diagram row only requires making a fininte number of passes over the list of vertices.
 /// Therefore the runtime to write a single branch diagram row is `O(num_active_vertices)`,
 /// assuming the various methods in [`Ramify`] take constant time.
 ///
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
 /// buffer is re-used between calls to [`write_vertex`](Self::write_vertex).
 #[derive(Debug)]
-pub struct Generator<V, R, B> {
-    columns: Columns<V, R, B>,
+pub struct Generator<V, R, B, P = Infallible> {
+    columns: Columns<V, R, B, P>,
     annotation_buf: String,
-    // for inverted mode, we need to store the row state across the call boundary
-    prev: Option<RowState>,
+    // in inverted mode, we need to avoid writing lines below the root
+    first: bool,
 }
 
-impl<V, R, B: WriteBranch> Generator<V, R, B> {
+impl<V, R, B: WriteBranch, P> Generator<V, R, B, P> {
     /// Get a new branch diagram generator starting at a given vertex of type `V` using the provided
     /// configuration.
     pub fn init(root: V, ramifier: R, config: Config<B>) -> Self {
         Self {
             columns: Columns::init(root, ramifier, config),
             annotation_buf: String::new(),
-            prev: None,
+            first: true,
         }
     }
 
@@ -140,8 +139,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
 
     /// Returns a mutable reference to the configuration.
     ///
-    /// The configuration parameters can be safely changed in between vertices of the branch
-    /// diagram.
+    /// The configuration parameters can be safely changed while writing the branch diagram.
     pub fn config_mut(&mut self) -> &mut Config<B> {
         self.columns.config_mut()
     }
@@ -180,7 +178,7 @@ impl<E: std::fmt::Display> std::fmt::Display for WriteVertexError<E> {
 /// 1. Make all of the vertices isolated.
 /// 2. Once isolated, merges the vertices if needed.
 fn write_preparation_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
-    cols: &mut Columns<V, R, B>,
+    cols: &mut Columns<V, R, B, R::Placeholder>,
     writer: &mut DiagramWriter<W, B>,
     state: &mut RowState,
 ) -> io::Result<()> {
@@ -193,22 +191,24 @@ fn write_preparation_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
     Ok(())
 }
 
-fn write_align_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
-    cols: &mut Columns<V, R, B>,
+fn write_preparation_row_inverted<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
+    cols: &mut Columns<V, R, B, R::Placeholder>,
     writer: &mut DiagramWriter<W, B>,
-    state: &mut RowState,
-) -> io::Result<()> {
-    let new = if state.is_isolated() && !cols.is_merged() {
-        cols.write_merge_row(writer, ops::Merge)?
-    } else {
-        cols.write_row(writer, ops::Align)?
-    };
-    state.update(&new);
-    Ok(())
+    first: bool,
+    col: &mut usize,
+) -> io::Result<RowState> {
+    match (cols.config().minimize_width, first) {
+        (false, false) => cols.write_shimmed_row(writer, ops::Fork, (*col, ops::Continue(col))),
+        (true, false) => {
+            cols.write_shimmed_row(writer, ops::Compact, (*col, ops::ContinueCompact(col)))
+        }
+        (false, true) => cols.write_row(writer, ops::Skip),
+        (true, true) => cols.write_row(writer, ops::SkipCompact),
+    }
 }
 
 fn write_vertex_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
-    cols: &mut Columns<V, R, B>,
+    cols: &mut Columns<V, R, B, R::Placeholder>,
     writer: &mut DiagramWriter<W, B>,
     col: usize,
     marker_char: char,
@@ -225,10 +225,22 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     ///
     /// # Output rows
     ///
-    /// A single call to this method will first write the row containing the vertex. Then, it will
-    /// write a number of non-marker rows in order to accommodate additional lines of annotation
-    /// and to set the generator state so that the subsequent call can immediately write
-    /// a vertex.
+    /// A single call to this method will write a row containing the vertex, along with other rows:
+    ///
+    /// - If not inverted, the vertex is written first, followed by a number of non-marker rows in order to accommodate
+    ///   additional lines of annotation and to set the generator state so that the subsequent
+    ///   call can immediately write a vertex.
+    /// - If inverted, the vertex is prepared, and then the annotations are written with the vertex
+    ///   on the final row. The vertex must be prepared before the annotations since it is not
+    ///   known in advance how many rows will be required to write the vertex row.
+    ///
+    /// # Correctly rendering inverted mode
+    ///
+    /// In inverted mode, the annotation lines are written in reverse order and aligned so that the final
+    /// annotation line coincides with the vertex. This makes the annotations look correct
+    /// if the branch diagram is displayed with the root at the bottom. The most common way to do this is to
+    /// first write the branch diagram into a string buffer, and then write the lines of the buffer
+    /// in reverse.
     ///
     /// # Valid Unicode
     ///
@@ -242,19 +254,14 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     /// but the number of calls is still large. It is recommended that the provided writer is
     /// buffered, for example using an [`io::BufWriter`] or an [`io::LineWriter`]. Many writers
     /// provided by the standard library are already buffered.
-    ///
-    /// # Inverted mode
-    ///
-    /// In inverted mode, the vertex is written last rather than first, and
-    /// the annotation lines are written in reverse order. This makes the annotations look correct
-    /// if the tree is displayed with the root at the bottom.
     pub fn write_vertex<W: io::Write>(&mut self, writer: W) -> io::Result<bool>
     where
         R: Ramify<V>,
     {
         self.try_write_vertex(writer).map_err(|e| match e {
             WriteVertexError::IO(error) => error,
-            // the implementation of TryRamify if `R` is `Ramify` always succeeds
+            // the implementation of TryRamify if `R` is `Ramify` always succeeds because
+            // of the blanket implementation
             WriteVertexError::TryChildrenFailed(_) => unreachable!(),
         })
     }
@@ -270,7 +277,9 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
         self.write_vertex(unsafe { buf.as_mut_vec() })
             .expect("Out of memory!")
     }
+}
 
+impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
     /// Attempt to write the next vertex, failing to do so if the call to [`TryRamify::try_ramify`]
     /// results in an error.
     ///
@@ -281,15 +290,17 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     ///
     /// The replacement vertex will be used as the minimal vertex, even if the vertex changed. In
     /// most cases, you should just return the original vertex, but an alternative could be returned
-    /// if the original vertex should not be attempted again. In particular, no writes will occur
-    /// when rendering fails.
+    /// if the original vertex should not be attempted again.
+    ///
+    /// In normal rendering order, this means that no writes will occur when rendering fails. In
+    /// inverted mode, any writes which prepare the vertex will still succeed, but will not be
+    /// repeated on the next attempt. In either case, assuming the original vertex is returned as
+    /// the replacement, rendering is *idempotent*: failing to obtain the children `n` times,
+    /// followed by a success, is exactly the same succeeding on the first try.
     pub fn try_write_vertex<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError<R::Error>>
-    where
-        R: TryRamify<V>,
-    {
+    ) -> Result<bool, WriteVertexError<R::Error>> {
         if B::INVERTED {
             self.try_write_vertex_inverted(writer)
         } else {
@@ -302,10 +313,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     ///
     /// This is identical to [`try_write_vertex`](Self::try_write_vertex), except there is no
     /// IO error since writing will not fail (unless you run out of memory).
-    pub fn try_write_vertex_str(&mut self, buf: &mut String) -> Result<bool, R::Error>
-    where
-        R: TryRamify<V>,
-    {
+    pub fn try_write_vertex_str(&mut self, buf: &mut String) -> Result<bool, R::Error> {
         self.try_write_vertex(unsafe { buf.as_mut_vec() })
             .map_err(|e| match e {
                 WriteVertexError::IO(_) => panic!("Out of memory!"),
@@ -316,31 +324,21 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     fn try_write_vertex_normal<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError<R::Error>>
-    where
-        R: TryRamify<V>,
-    {
+    ) -> Result<bool, WriteVertexError<R::Error>> {
         let mut writer = DiagramWriter::new(writer);
-
-        let Some(min_idx) = self.columns.minimal() else {
-            return Ok(false);
-        };
 
         // perform the substitution first since we will use information
         // about the next minimal element in order to make predictive writes
-        let marker_char = self.columns.marker_char(min_idx);
-        let col = self.columns.col(min_idx);
-        self.annotation_buf.clear();
-        self.columns
-            .buffer_annotation(min_idx, &mut self.annotation_buf);
-        self.columns
-            .substitute(min_idx)
-            .map_err(WriteVertexError::TryChildrenFailed)?;
+        let Some((col, marker_char)) = self
+            .columns
+            .try_substitute(&mut self.annotation_buf)
+            .map_err(WriteVertexError::TryChildrenFailed)?
+        else {
+            return Ok(false);
+        };
 
         // write the vertex row and get the diagram width
         let mut state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
-
-        // compute the annotation alignment based on the gutter width
 
         let mut lines = self.annotation_buf.lines();
 
@@ -385,83 +383,111 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     fn try_write_vertex_inverted<W: io::Write>(
         &mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError<R::Error>>
-    where
-        R: TryRamify<V>,
-    {
-        let Some(min_idx) = self.columns.minimal() else {
+    ) -> Result<bool, WriteVertexError<R::Error>> {
+        // substitute and update minimal index
+        let Some((mut col, marker_char)) = self
+            .columns
+            .try_substitute(&mut self.annotation_buf)
+            .map_err(WriteVertexError::TryChildrenFailed)?
+        else {
             return Ok(false);
         };
 
         let mut writer = DiagramWriter::<W, B>::new(writer);
-        let mut state = self.prev.unwrap_or(self.columns.initial_state());
 
-        // write the padding and prepare for the next vertex (unless this is the first row)
-        if self.prev.is_some() {
+        // Write annotation lines, with the vertex on the last line.
+        let mut lines = self.annotation_buf.lines();
+        let maybe_last_line = lines.next();
+
+        let mut state = match maybe_last_line {
+            None => {
+                // no annotation, so we can already prepare for the next row
+                let state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
+
+                writer.write_newline()?;
+                state
+            }
+            Some(last_line) => {
+                match lines.next_back() {
+                    None => {
+                        // exactly one annotation line
+                        let state = self.columns.write_shimmed_row(
+                            &mut writer,
+                            ops::Fork,
+                            (col, ops::Marker(marker_char)),
+                        )?;
+                        writer.write_annotation(last_line, &state)?;
+
+                        state
+                    }
+                    Some(first_line) => {
+                        let mut state = write_preparation_row_inverted(
+                            &mut self.columns,
+                            &mut writer,
+                            self.first,
+                            &mut col,
+                        )?;
+                        writer.write_annotation(first_line, &state)?;
+
+                        for line in lines.rev() {
+                            let new = write_preparation_row_inverted(
+                                &mut self.columns,
+                                &mut writer,
+                                self.first,
+                                &mut col,
+                            )?;
+                            state.update(&new);
+                            writer.write_annotation(line, &state)?;
+                        }
+
+                        let new_state = if self.config().minimize_width {
+                            self.columns.write_shimmed_row(
+                                &mut writer,
+                                ops::Compact,
+                                (col, ops::MarkerCompact(marker_char)),
+                            )?
+                        } else {
+                            self.columns.write_shimmed_row(
+                                &mut writer,
+                                ops::Fork,
+                                (col, ops::Marker(marker_char)),
+                            )?
+                        };
+
+                        // temporarily store the width, etc. in the previous state, and use it
+                        // to write the annotation
+                        state.update(&new_state);
+                        writer.write_annotation(last_line, &state)?;
+
+                        new_state
+                    }
+                }
+            }
+        };
+        self.first = false;
+
+        // write the padding and prepare for the next vertex (unless this is the last row)
+        if self.columns.is_empty() {
+            Ok(false)
+        } else {
             let mut padding = self.config().row_padding;
             while padding > 0 {
                 write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                 writer.write_newline()?;
                 padding -= 1;
             }
-        }
 
-        // make the minimal index a singleton so that the vertex row can be written.
-        while !state.is_ready() {
-            write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
-            writer.write_newline()?;
-        }
-
-        // get all of the data for the minimal vertex
-        self.annotation_buf.clear();
-        self.columns
-            .buffer_annotation(min_idx, &mut self.annotation_buf);
-
-        // Write annotation lines, with the vertex on the last line.
-        let mut lines = self.annotation_buf.lines();
-        let maybe_last_line = lines.next();
-
-        match maybe_last_line {
-            None => {
-                // substitute and update minimal index
-                let (col, marker_char) = self
-                    .columns
-                    .substitute(min_idx)
-                    .map_err(WriteVertexError::TryChildrenFailed)?;
-                let state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
-                self.prev = Some(state);
-
+            // make the minimal index a singleton so that the vertex row can be written.
+            while !state.is_ready() {
+                write_preparation_row(&mut self.columns, &mut writer, &mut state)?;
                 writer.write_newline()?;
             }
-            Some(last_line) => {
-                // write all of the preceding annotation lines
-                for line in lines.rev() {
-                    if self.prev.is_some() {
-                        write_align_row(&mut self.columns, &mut writer, &mut state)?;
-                    }
-                    writer.write_annotation(line, &state)?;
-                }
-
-                let (col, marker_char) = self
-                    .columns
-                    .substitute(min_idx)
-                    .map_err(WriteVertexError::TryChildrenFailed)?;
-                // write the last line
-                let new_state = self.columns.write_bounded_shimmed_row(
-                    &mut writer,
-                    ops::Align,
-                    state.alignment().1,
-                    (col, ops::Marker(marker_char)),
-                )?;
-                state.update(&new_state);
-                writer.write_annotation(last_line, &state)?;
-
-                self.prev = Some(new_state);
-            }
+            Ok(true)
         }
-        Ok(!self.columns.is_empty())
     }
+}
 
+impl<V, R, B, P> Generator<V, R, B, P> {
     /// The index of the final `open` edge, or `None` if there are no edges.
     ///
     /// For example, the below diagram has maximum edge index `4`.
@@ -507,7 +533,7 @@ impl<V, R, B: WriteBranch> Generator<V, R, B> {
     }
 }
 
-impl<V, R> Generator<V, R, RoundedCorners> {
+impl<V, R, P> Generator<V, R, RoundedCorners, P> {
     /// Initialize using default configuration with the *rounded corners* style.
     ///
     /// See the documentation for [`RoundedCorners`] for an example.
@@ -516,7 +542,7 @@ impl<V, R> Generator<V, R, RoundedCorners> {
     }
 }
 
-impl<V, R> Generator<V, R, RoundedCornersWide> {
+impl<V, R, P> Generator<V, R, RoundedCornersWide, P> {
     /// Initialize using default configuration with the *rounded corners* style, and extra internal
     /// whitespace.
     ///
@@ -526,7 +552,7 @@ impl<V, R> Generator<V, R, RoundedCornersWide> {
     }
 }
 
-impl<V, R> Generator<V, R, SharpCorners> {
+impl<V, R, P> Generator<V, R, SharpCorners, P> {
     /// Initialize using default configuration with the *sharp corners* style.
     ///
     /// See the documentation for [`SharpCorners`] for an example.
@@ -535,7 +561,7 @@ impl<V, R> Generator<V, R, SharpCorners> {
     }
 }
 
-impl<V, R> Generator<V, R, SharpCornersWide> {
+impl<V, R, P> Generator<V, R, SharpCornersWide, P> {
     /// Initialize using default configuration with the *sharp corners* style, and extra internal
     /// whitespace.
     ///
@@ -545,7 +571,7 @@ impl<V, R> Generator<V, R, SharpCornersWide> {
     }
 }
 
-impl<V, R> Generator<V, R, DoubledLines> {
+impl<V, R, P> Generator<V, R, DoubledLines, P> {
     /// Initialize using default configuration with the *doubled lines* style.
     ///
     /// See the documentation for [`DoubledLines`] for an example.

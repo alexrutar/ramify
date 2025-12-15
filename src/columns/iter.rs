@@ -23,7 +23,7 @@ pub trait Apply<W> {
 /// An operation which can be applied to a column or between columns.
 pub trait Shim<W>: Apply<W> {
     /// Insert into the provided gap.
-    fn insert(self, state: W, gap: Gap) -> Result<usize, Self::Error>;
+    fn insert(self, state: W, gap: Alignment) -> Result<(usize, usize, bool), Self::Error>;
 }
 
 /// The alignment of a column.
@@ -36,13 +36,13 @@ pub trait Shim<W>: Apply<W> {
 pub struct Alignment {
     /// The lower limit for legal writes.
     pub l: usize,
+    /// The column.
+    pub c: usize,
     /// The upper limit for legal writes.
     pub r: Option<usize>,
     /// The targeted left alignment. This is what `self.c` would be
     /// when all columns are fully expanded and there are no gaps.
     pub align: usize,
-    /// The original column value for this block
-    pub c: usize,
 }
 
 impl Alignment {
@@ -54,19 +54,6 @@ impl Alignment {
             Some(mx) => t.min(mx - 1), // Inv 5
         }
     }
-}
-
-/// A gap between two columns.
-#[allow(unused)]
-pub struct Gap {
-    /// The lower limit for legal writes.
-    pub l: usize,
-    /// The shim column.
-    pub c: usize,
-    /// The upper limit for legal writes.
-    pub r: Option<usize>,
-    /// The targeted left alignment.
-    pub align: usize,
 }
 
 /// The minimal indices corresponding to a given column.
@@ -111,6 +98,10 @@ impl<'a> MinIndices<'a> {
             lt_first,
             geq_last,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.first.is_none() && self.rest.as_slice().is_empty()
     }
 
     /// Return the position of this minimal index relative to the other minimal indices.
@@ -180,21 +171,12 @@ pub struct ColumnsMut<'a, V> {
     l: usize,
     isolated: bool,
     align: usize,
-    // FIXME: it would be better if `ColumnsMut`, `Shimmed`, and a new `Bounded`
-    // were all implementors of some trait, and `Shimmed` and `Bounded` were
-    // generic over the trait
-    bound: Option<usize>,
 }
 
 impl<'a, V> ColumnsMut<'a, V> {
     /// Initialize a new left-aligned mutable column iterator.
     pub fn new(active: &'a mut [(V, usize)], minimal: Option<(usize, &'a [usize])>) -> Self {
         Self::with_alignment(active, minimal, 0)
-    }
-
-    pub fn with_bound(mut self, bound: usize) -> Self {
-        self.bound = Some(bound);
-        self
     }
 
     /// Initialize a mutable column iterator with an initial target alignment.
@@ -209,7 +191,6 @@ impl<'a, V> ColumnsMut<'a, V> {
             l: 0,
             isolated: true,
             align,
-            bound: None,
         }
     }
 
@@ -238,7 +219,7 @@ impl<'a, V> ColumnsMut<'a, V> {
         let col = Alignment {
             l: self.l,
             align: self.align,
-            r: r.or(self.bound),
+            r,
             c,
         };
 
@@ -303,16 +284,18 @@ impl<'a, V, S> Shimmed<'a, V, S> {
     where
         S: Shim<T>,
     {
-        let gap = Gap {
+        let gap = Alignment {
             l: self.cols.l,
             c,
             r,
             align: self.cols.align,
         };
 
-        let shimmed = shim.insert(state, gap)?;
+        let (shimmed, extra, isolated) = shim.insert(state, gap)?;
 
         self.cols.l += shimmed;
+        self.cols.align += extra;
+        self.cols.isolated &= isolated;
         Ok(r)
     }
 

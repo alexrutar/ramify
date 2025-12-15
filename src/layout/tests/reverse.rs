@@ -2,6 +2,30 @@ use super::*;
 
 use crate::branch_writer;
 
+fn assert_diag_short<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expected: &str) {
+    struct AnnotatingRamifier;
+
+    impl<'t> Ramify<&'t Vtx<char>> for AnnotatingRamifier {
+        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
+            vtx.children.iter()
+        }
+
+        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
+            vtx.data
+        }
+
+        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
+            vtx.data
+        }
+
+        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
+            buf.push_str("#")
+        }
+    }
+
+    assert_diag_impl(root, config, expected, AnnotatingRamifier);
+}
+
 fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expected: &str) {
     struct AnnotatingRamifier;
 
@@ -18,8 +42,8 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
             vtx.data
         }
 
-        fn annotate<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
-            write!(buf, "1\n2\n3")
+        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
+            buf.push_str("1\n2\n3")
         }
     }
 
@@ -85,42 +109,72 @@ fn reversed_basic() {
     assert_diag_annot(
         ex2(),
         config.clone(),
-        "    3
-    2
-0   1
+        "        3
+        2
+0       1
 ├─┴─╯
-│ │ │   3
-│ │ │   2
-│ 1 │   1
-│ │ ├─╯
+│ │ ├─╯   3
+│ │ │ │   2
+│ 1 │ │   1
+│ │ │ │
 │ │ │ │   3
 │ │ │ │   2
 │ │ 2 │   1
 │ │ │ │
-│ │ │ │   3
-│ │ │ │   2
-│ 3 │ │   1
-│ ╰─╮ ├─╯
+│ │ │ ├─╯   3
+│ │ │ │ │   2
+│ 3 │ │ │   1
+│ ╰─╮ │ │
 │ │ ╰─┤ │
 │ │ │ │ │   3
 │ │ │ │ │   2
 │ │ │ 4 │   1
 │ │ │ ╰─╮
-│ │ │ │     3
-│ │ │ │     2
-│ │ 5 │     1
+│ │ │ │   3
+│ │ │ │   2
+│ │ 5 │   1
 │ │ ╰─╮
-│ │ │     3
-│ │ │     2
-│ 6 │     1
+│ │ │   3
+│ │ │   2
+│ 6 │   1
 │ ╰─╮
-│ │     3
-│ │     2
-7 │     1
+│ │   3
+│ │   2
+7 │   1
 ╰─╮
-│     3
-│     2
-8     1
+│   3
+│   2
+8   1
+",
+    );
+}
+
+#[test]
+fn inner_whitespace() {
+    branch_writer! {
+        pub struct MyStyle {
+            charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
+            gutter_width: 0,
+            inverted: true,
+        }
+    }
+    let mut config = Config::<MyStyle>::new();
+    config.row_padding = 0;
+    let root = {
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::leaf('2');
+        let v1 = Vtx::leaf('1');
+        Vtx::inner('0', vec![v3, v1, v2])
+    };
+
+    assert_diag_short(
+        root,
+        config,
+        "0   #
+├┴╯
+│1│ #
+│ 2 #
+3 #
 ",
     );
 }
@@ -140,6 +194,44 @@ fn reversed_no_annotation() {
     assert_diag_annot(
         ex4(),
         config,
+        "    3
+    2
+0   1
+├┴╯
+││├╯ 3
+││││ 2
+│1││ 1
+││││ 3
+││││ 2
+││2│ 1
+│╭╯╭╯ 3
+├╯╭╯│ 2
+│├╯│3 1
+│││││ 3
+│││││ 2
+│4│││ 1
+│╰╮││ 3
+││╰╮│ 2
+5││╰╮ 1
+╰╮││ 3
+│╰╮│ 2
+6│╰╮ 1
+╰╮│ 3
+│╰╮ 2
+7│  1
+╰╮ 3
+│  2
+8  1
+",
+    );
+
+    let mut config = Config::<MyStyle>::new();
+    config.row_padding = 0;
+    config.minimize_width = true;
+
+    assert_diag_annot(
+        ex4(),
+        config,
         "  3
   2
 0 1
@@ -151,27 +243,37 @@ fn reversed_no_annotation() {
 ││││ 3
 ││││ 2
 ││2│ 1
-││╰╮ 3
-│││  2
-││3  1
+││╰╮
+│││ 3
+│││ 2
+││3 1
 ││╭─╯
 │╭─╯│
 ├┴╯││
 │││││ 3
 │││││ 2
 │4│││ 1
-│╰╮││ 3
-││╰╮│ 2
-5││╰╮ 1
-╰╮││  3
-│╰╮│  2
-6│╰╮  1
-╰╮│  3
-│╰╮  2
-7│   1
-╰╮ 3
-│  2
-8  1
+│╰╮││
+││╰╮│
+│││╰╮
+││││ 3
+││││ 2
+5│││ 1
+╰╮││
+│╰╮│
+││╰╮
+│││ 3
+│││ 2
+6││ 1
+╰╮│
+│╰╮
+││ 3
+││ 2
+7│ 1
+╰╮
+│ 3
+│ 2
+8 1
 ",
     );
 }

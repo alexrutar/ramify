@@ -1,12 +1,14 @@
+mod compact;
 #[cfg(test)]
 mod tests;
 
 use std::io;
 
 use crate::{
-    columns::{Alignment, Apply, Gap, MinIndices, Position, Shim},
+    columns::{Alignment, Apply, MinIndices, Position, Shim},
     writer::{Branch, DiagramWriter, MergeBranch, WriteBranch},
 };
+pub use compact::{Compact, ContinueCompact, MarkerCompact, SkipCompact};
 
 /// A special merge command.
 ///
@@ -67,26 +69,6 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
     }
 }
 
-/// Compact much as possible, ignoring minimal indices.
-///
-/// This is the opposite of [`Isolate`].
-#[derive(Debug, Clone, Copy)]
-pub struct Compact;
-
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Compact {
-    type Error = io::Error;
-
-    fn apply<V>(
-        self,
-        state: &'a mut DiagramWriter<W, B>,
-        align: Alignment,
-        span: &mut [(V, usize)],
-        _minimal: MinIndices<'_>,
-    ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<false, false, _, _, _>(state, align, span, [], Branch::Continue)
-    }
-}
-
 /// Either shims a marker, or writes a marker in place of the column while preserving the alignment
 /// of the overwritten column.
 #[derive(Debug, Clone, Copy)]
@@ -107,11 +89,80 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Ma
 }
 
 impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Marker {
-    fn insert(self, writer: &'a mut DiagramWriter<W, B>, gap: Gap) -> Result<usize, Self::Error> {
+    fn insert(
+        self,
+        writer: &'a mut DiagramWriter<W, B>,
+        gap: Alignment,
+    ) -> Result<(usize, usize, bool), Self::Error> {
         let leading = gap.c - gap.l;
         writer.queue_fill(leading);
         writer.write_branch(Branch::Marker(self.0))?;
-        Ok(leading + 1)
+        Ok((leading + 1, 0, true))
+    }
+}
+
+/// Skip the row, but perform width computations.
+#[derive(Debug, Clone, Copy)]
+pub struct Skip;
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Skip {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: MinIndices<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl::<true, true, _, _, _>(state, align, span, minimal, Branch::Marker(' '))
+    }
+}
+
+/// A shim which acts as though the column existed in the original database.
+pub struct Continue<'c>(pub &'c mut usize);
+
+impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Continue<'c> {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: MinIndices<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        let ret = fork_impl::<false, true, _, _, _>(state, align, span, minimal, Branch::Continue)?;
+        *self.0 = span.last().unwrap().1;
+        Ok(ret)
+    }
+}
+
+impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Continue<'c> {
+    fn insert(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+    ) -> Result<(usize, usize, bool), Self::Error> {
+        // FIXME: this is hacky since it repeats existing manual width computations
+        // Maybe it would be best if all of the methods would return `(usize, usize, bool)`
+        let l = align.l;
+
+        // create a temporary span representing this column
+        let mut span = [((), *self.0)];
+
+        // write the column, modifying the span
+        fork_impl::<false, true, _, _, _>(state, align, &mut span, [], Branch::Continue)?;
+        // the new column value is exactly this column
+        let new_col = span[0].1;
+
+        // the gap is the difference between the new column and the existing one;
+        // except that the new column could be smaller
+        let gap = 1 + (*self.0).max(new_col) - l;
+        *self.0 = span[0].1;
+
+        // ignore the column
+        Ok((gap, 0, true))
     }
 }
 

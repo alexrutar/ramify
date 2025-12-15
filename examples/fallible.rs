@@ -2,7 +2,7 @@
 
 use std::io;
 
-use ramify::{Config, Generator, Replacement, TryRamify, WriteVertexError};
+use ramify::{Config, Failed, Generator, TryRamify, WriteVertexError};
 use rand::distr::{Bernoulli, Distribution};
 
 /// A basic recursive tree implementation.
@@ -33,10 +33,12 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
     /// We don't include any extra context if rendering fails.
     type Error = ();
 
+    type Placeholder = Option<&'t Vtx>;
+
     fn try_ramify(
         &mut self,
         vtx: Option<&'t Vtx>,
-    ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Replacement<Option<&'t Vtx>, Self::Error>>
+    ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Failed<Option<&'t Vtx>, Self::Error>>
     {
         match vtx {
             Some(v) => {
@@ -53,6 +55,14 @@ impl<'t> TryRamify<Option<&'t Vtx>> for FallibleRamifier {
             // a failed vertex has no children
             None => Ok([].iter().map(Some)),
         }
+    }
+
+    fn retry_ramify(
+        &mut self,
+        prev: Self::Placeholder,
+    ) -> Result<impl IntoIterator<Item = Option<&'t Vtx>>, Failed<Self::Placeholder, Self::Error>>
+    {
+        self.try_ramify(prev)
     }
 
     fn sort_key(&self, vtx: &Option<&'t Vtx>) -> impl Ord {
