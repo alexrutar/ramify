@@ -64,11 +64,10 @@ impl Ramify<u64> for RandomCascade {
         '◊'
     }
 
-    fn annotate<B: std::fmt::Write>(&self, vtx: &u64, mut buf: B) -> std::fmt::Result {
+    fn annotate(&self, vtx: &u64, buf: &mut String) {
         if self.show_weight {
-            write!(buf, "{vtx}")
-        } else {
-            Ok(())
+            use std::fmt::Write;
+            let _ = write!(buf, "{vtx}");
         }
     }
 

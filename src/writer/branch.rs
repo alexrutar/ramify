@@ -336,26 +336,6 @@ macro_rules! branch_writer {
             }
         }
     };
-    // FIXME: remove this some time later
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident {
-            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $nsew:literal$(,)?],
-            gutter_width: $gutter_width:expr,
-            inverted: $inverted:expr$(,)?
-        }
-    ) => {
-        compile_error!("This macro has been changed to require an extra '┴' character in the second last position, before '┼'.");
-    };
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident {
-            charset: [$ns:literal, $ew:literal, $sw:literal, $se:literal, $nw:literal, $ne:literal, $nsw:literal, $nse:literal, $sew:literal, $new:literal, $nsew:literal$(,)?],
-            gutter_width: $gutter_width:expr$(,)?
-        }
-    ) => {
-        compile_error!("This macro has been changed to require an extra '┴' character in the second last position, before '┼'.");
-    };
 }
 
 pub use branch_writer;

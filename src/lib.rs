@@ -2,21 +2,21 @@
 //!
 //! Ramify is a library for generating *branch diagrams* to visualize hierarchical data.
 //! ```txt
-//! 0       0         0
-//! ├╮      ├┬╮       ├┬╮  
-//! 1├╮     │1├╮      │1│  
-//! │2│     ││2│      2│╰─╮
-//! │3│     │3││      │╰─╮│
-//! ├╮│     │╭╯│      ├┬╮││
-//! 4││     ││╭┼╮     │3│││
-//!  5│     │││4│     4╭╯││
-//! ╭╯6     ││5╭╯      5╭╯│
-//! 7       │6╭╯        6╭╯
-//!         7╭╯          7
-//!          8             
+//! 0       0        0         0
+//! ├┐      ├╮       ├┬┐       ├┬┐
+//! 1├┐     1╰╮      │1├┐      │1│
+//! │2│     ├╮│      ││2│      2│└─┐
+//! │3│     2│├╮     │3││      │└─┐│
+//! ├┐│     │││3     │┌┘│      ├┬┐││
+//! 4││     ├││╯     ││┌┼┐     │3│││
+//!  5│     4││      │││4│     4┌┘││
+//! ┌┘6     │5│      ││5┌┘      5┌┘│
+//! 7       ├─╯      │6┌┘        6┌┘
+//!         6        7┌┘          7
+//!                   8
 //! ```
-//! This library is specifically designed for ordered data: this is closer to the output of
-//! `git log --graph --all` than the output of `tree`. A prototypical application is to visualize the
+//! This library is specifically designed for ordered data: this library generates output similar to
+//! `git log --graph --all`, rather than the output of `tree`. A prototypical application is to visualize the
 //! undo-tree of a text file. The order is the timestamp of the edit, and the tree structure
 //! results from the undo relation.
 //!
@@ -38,7 +38,7 @@ pub(crate) mod columns;
 mod layout;
 pub mod writer;
 
-use std::{convert::Infallible, fmt};
+use std::convert::Infallible;
 
 pub use self::{
     layout::{Generator, WriteVertexError},
@@ -48,6 +48,8 @@ pub use self::{
 /// A trait representing hierarchical data structures with efficient iteration of children.
 ///
 /// For a version of this trait in which iteration of children might fail, see [`TryRamify`].
+///
+/// This trait includes provided methods and default methods.
 ///
 /// Also see the [`Generator`] documentation for more information, particularly concerning [the sequence of method calls](Generator#method-call-guarantees) and [resource mangement](Generator#resource-management).
 pub trait Ramify<V> {
@@ -132,14 +134,16 @@ pub trait Ramify<V> {
 
     /// An annotation to write alongside a vertex.
     ///
+    /// The buffer is cleared before it is passed to this method.
+    ///
     /// This will be called exactly once per vertex.
-    /// The lines of the annotations are written sequentially, with the first line written on the
-    /// same line as the vertex with which it is associated.
-    /// The default implementation does not write an annotation.
+    /// The lines in the buffer are written sequentially, with the first line written on the
+    /// same line as the vertex with which it is associated. The default implementation
+    /// does not write an annotation.
     ///
     /// # Implementation details
     ///
-    /// Implementations of this method should write the annotation directly into the [`fmt::Write`] buffer,
+    /// Implementations of this method should write the annotation directly into the buffer,
     /// including newlines for annotations spanning multiple lines. The annotations are
     /// automatically line-broken and aligned with the branch diagram when rendered.
     ///
@@ -163,31 +167,38 @@ pub trait Ramify<V> {
     /// ```
     #[allow(unused)]
     #[inline]
-    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
-        Ok(())
-    }
+    fn annotate(&self, vtx: &V, buf: &mut String) {}
 
-    /// Return if two vertices are identical and should be merged.
+    /// Return if two vertices are identical and therefore should be merged.
     ///
     /// The first argument is the current minimal vertex and the second argument is a different active
-    /// vertex. This method is called once for other active vertex, after computing the new minimal
+    /// vertex. This method is called once for other active vertex after computing the new minimal
     /// vertex.
-    ///
-    /// This method must be compatible with [`Ramify::sort_key`]: *if two vertices are identical,
-    /// then their sort keys must also be equal*. The converse need not hold (the sort
-    /// keys can be equal even if the keys are not identical). Failure to uphold this invariant
-    /// will result in otherwise identical vertices not being merged.
     ///
     /// The default implementation always returns `false`, so vertices will never be merged.
     /// Vertices which are merged will be passed to [`cleanup`](Ramify::cleanup).
     ///
-    /// # Difference from `key`
+    /// # Difference from [`sort_key`](Ramify::sort_key)
     ///
     /// Unlike [`sort_key`](Ramify::sort_key), this method should check that the
     /// vertices are exactly the same. What this means depends on the vertex type, but
     /// this might look like [`Rc::ptr_eq`](std::rc::Rc::ptr_eq), or like comparison of a `usize`
     /// index for flattened graph-like structures, or comparison of uniquely-defining metadata
     /// (like a Git commit hash).
+    ///
+    /// # Implementation requirements
+    ///
+    /// This method must be compatible with [`Ramify::sort_key`]: **if two vertices are identical,
+    /// then their sort keys must also be equal**. The converse need not hold (the sort
+    /// keys can be equal even if the keys are not identical). Failure to uphold this invariant
+    /// will result in otherwise identical vertices not being merged.
+    ///
+    /// Note that this *only checks active vertices*. If there is an identical vertex but it is an
+    /// offspring of a vertex which has yet to be written, this vertex will not be merged.
+    ///
+    /// If every child of a vertex is strictly larger than the vertex itself (as ordered by
+    /// [`sort_key`](Ramify::sort_key)) and the above compatibility requirement is upheld, it is
+    /// guaranteed that identical vertices will not be missed.
     #[allow(unused)]
     #[inline]
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
@@ -196,33 +207,33 @@ pub trait Ramify<V> {
 
     /// Clean up a merged vertex.
     ///
-    /// If `should_merge` method returns `true`, the `other` vertex will be removed from the
+    /// If [`is_identical`](Ramify::is_identical) returns `true`, the `other` vertex will be removed from the
     /// list of active vertices. When it is removed, it is passed to this method.
     ///
     /// The default implementation drops the vertex.
     #[inline]
-    fn cleanup(&self, vtx: V) {
+    fn cleanup(&mut self, vtx: V) {
         drop(vtx);
     }
 }
 
-/// A replacement vertex returned when a ramifier fails to determine the children associated with
+/// The error returned when a ramifier fails to determine the children associated with
 /// a vertex.
 ///
 /// This struct is used as the error variant returned by [`TryRamify::try_ramify`]. See those
 /// docs for more detail.
 #[derive(Debug)]
-pub struct Replacement<V, E = ()> {
-    /// The replacement vertex, which might be the same as the original vertex.
-    pub value: V,
+pub struct Failed<P, E = ()> {
+    /// A placeholder vertex for retry attempts.
+    pub placeholder: P,
     /// The associated error.
     pub err: E,
 }
 
-impl<V, E: Default> From<V> for Replacement<V, E> {
-    fn from(value: V) -> Self {
+impl<P, E: Default> From<P> for Failed<P, E> {
+    fn from(placeholder: P) -> Self {
         Self {
-            value,
+            placeholder,
             err: E::default(),
         }
     }
@@ -239,25 +250,52 @@ impl<V, E: Default> From<V> for Replacement<V, E> {
 /// ### Blanket implementation
 ///
 /// There is a blanket implementation of `TryRamify<V>` whenever a type is `Ramify<V>` with the
-/// call to [`try_children`](TryRamify::try_ramify) always returning `Ok(_)`. In particular, you can use
+/// call to [`try_ramify`](TryRamify::try_ramify) always returning `Ok(_)`. In particular, you can use
 /// a [`Ramify`] implementation anywhere a [`TryRamify`] implementation is expected.
 pub trait TryRamify<V> {
     /// An error which may occur while trying to retrieve the children.
     type Error;
 
+    /// A placeholder passed to the next render attempt.
+    type Placeholder;
+
     /// Try to iterate over the children of the vertex.
     ///
-    /// If a vertex is not ready to be iterated, a replacement must be specified in the `Err(_)`
-    /// variant. The replacement vertex **will be used as the new minimal vertex**, regardless of
-    /// its order relative to the other vertices.
+    /// If it is not possible to determine the children, a placeholder must be returned in the `Err(_)`
+    /// variant. The placeholder will be passed to [`retry`](TryRamify::retry) for subsequent
+    /// attempts.
     ///
-    /// In particular, failing to iterate will not result in any writes. Since the vertex returned
-    /// on an error might change, the marker and annotation associated with the original vertex
-    /// will be discarded and re-computed in the next attempt.
+    /// The marker character and the annotation of the previous vertex are used, regardless
+    /// of the returned replacement vertex. The replacement vertex is only used to pass
+    /// additional state onwards to the next call of this method.
+    ///
+    /// # Common implementation patterns
+    ///
+    /// Here are a few common patterns for which this method is designed.
+    ///
+    /// 1. *Permanent failure*: This method can be used to abort on an unrecoverable failure. Since the error is
+    ///    propagated to the caller, the caller can use this to abort iteration permanently. In this
+    ///    case, any placeholder vertex can be returned in the `Err(_)` variant.
+    /// 2. *Temporary failure*: If the failure is temporary, the original vertex can be returned in
+    ///    the `Err(_)` variant and the caller can wait (or do something else) before attempting
+    ///    to write a vertex row again. In this case, `retry` is just a call to `try_ramify`.
+    /// 3. *Local failure*: If only this specific vertex cannot be written (whereas it is
+    ///    reasonable for iteration to continue with the other vertices), this method should succeed
+    ///    but return a single special vertex which can be used later to report the failure inside
+    ///    the tree itself. In this case, one might implement [`Ramify`] instead.
     fn try_ramify(
         &mut self,
         vtx: V,
-    ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>>;
+    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>>;
+
+    /// Try to iterate over the children of a vertex when the previous attempt failed.
+    ///
+    /// Iteration may fail multiple times, in which case the value contained in the
+    /// [`Replacement`] in the previous attempt will be passed to the subsequent attempt.
+    fn retry_ramify(
+        &mut self,
+        prev: Self::Placeholder,
+    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>>;
 
     /// Get the sort key associated with a vertex.
     fn sort_key(&self, vtx: &V) -> impl Ord;
@@ -267,9 +305,7 @@ pub trait TryRamify<V> {
 
     /// An annotation to write alongside a vertex.
     #[allow(unused)]
-    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
-        Ok(())
-    }
+    fn annotate(&self, vtx: &V, buf: &mut String) {}
 
     /// Determine if two vertices are identical and should be merged.
     #[allow(unused)]
@@ -280,7 +316,7 @@ pub trait TryRamify<V> {
 
     /// Clean up a merged vertex.
     #[inline]
-    fn cleanup(&self, vtx: V) {
+    fn cleanup(&mut self, vtx: V) {
         drop(vtx);
     }
 }
@@ -288,11 +324,21 @@ pub trait TryRamify<V> {
 impl<R: Ramify<V>, V> TryRamify<V> for R {
     type Error = Infallible;
 
+    type Placeholder = Infallible;
+
     fn try_ramify(
         &mut self,
         vtx: V,
-    ) -> Result<impl IntoIterator<Item = V>, Replacement<V, Self::Error>> {
+    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>> {
         Ok(<Self as Ramify<V>>::ramify(self, vtx))
+    }
+
+    fn retry_ramify(
+        &mut self,
+        _: Self::Placeholder,
+    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>> {
+        // this is unreachable since `Self::Retry` is uninhabited
+        Ok(std::iter::empty())
     }
 
     fn sort_key(&self, vtx: &V) -> impl Ord {
@@ -303,7 +349,7 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
         <Self as Ramify<V>>::marker(self, vtx)
     }
 
-    fn annotate<B: fmt::Write>(&self, vtx: &V, buf: B) -> fmt::Result {
+    fn annotate(&self, vtx: &V, buf: &mut String) {
         <Self as Ramify<V>>::annotate(self, vtx, buf)
     }
 
@@ -311,7 +357,7 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
         <Self as Ramify<V>>::is_identical(self, vtx, other)
     }
 
-    fn cleanup(&self, vtx: V) {
+    fn cleanup(&mut self, vtx: V) {
         <Self as Ramify<V>>::cleanup(self, vtx)
     }
 }

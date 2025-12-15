@@ -16,8 +16,8 @@ fn assert_diag(root: Vtx<char>, expected: &str) {
             vtx.data
         }
 
-        fn annotate<B: Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
-            buf.write_char('#')
+        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
+            buf.push('#')
         }
     }
 

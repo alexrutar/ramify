@@ -2,23 +2,22 @@
 
 Ramify is a Rust library for generating *branch diagrams* to visualize hierarchical data.
 ```txt
-0       0         0    
-├┐      ├┬┐       ├┬┐  
-1├┐     │1├┐      │1│  
-│2│     ││2│      2│└─┐
-│3│     │3││      │└─┐│
-├┐│     │┌┘│      ├┬┐││
-4││     ││┌┼┐     │3│││
- 5│     │││4│     4┌┘││
-┌┘6     ││5┌┘      5┌┘│
-7       │6┌┘        6┌┘
-        7┌┘          7
-         8             
+0       0        0         0
+├┐      ├╮       ├┬┐       ├┬┐
+1├┐     1╰╮      │1├┐      │1│
+│2│     ├╮│      ││2│      2│└─┐
+│3│     2│├╮     │3││      │└─┐│
+├┐│     │││3     │┌┘│      ├┬┐││
+4││     ├││╯     ││┌┼┐     │3│││
+ 5│     4││      │││4│     4┌┘││
+┌┘6     │5│      ││5┌┘      5┌┘│
+7       ├─╯      │6┌┘        6┌┘
+        6        7┌┘          7
+                  8
 ```
 See the [gallery](https://github.com/alexrutar/ramify#gallery) for more images.
 
-This library is specifically designed for ordered data: this is closer to the output of
-`git log --graph --all` than the output of `tree`.
+This library is specifically designed for ordered data: this library generates output similar to `git log --graph --all`, rather than the output of `tree`.
 A prototypical application is to visualize the undo-tree of a text file.
 The order is the timestamp of the edit, and the tree structure results from the undo relation.
 
@@ -28,7 +27,7 @@ The order is the timestamp of the edit, and the tree structure results from the 
 - Memory efficient streaming implementation: new vertices are not requested until the
   parent vertex has been rendered.
 - Robust support for metadata via annotations and custom marker characters.
-- Generic over ordered hierarchical data with efficient iteration over immediate children.
+- Generic over ordered hierarchical data ([directed acyclic graphs](https://en.wikipedia.org/wiki/Directed_acyclic_graph)) with efficient iteration over immediate children.
 - No dependencies other than the standard library.
 
 Interested?
@@ -108,7 +107,7 @@ The same example, but with extra padding after the annotation and with 'width sl
 8
 ```
 The same example, but with no extra padding and inverted.
-```
+```txt
  8
 7└┐
 │6└┐
@@ -124,5 +123,30 @@ The same example, but with no extra padding and inverted.
 │1│ An annotation
 │││ with two lines
 ├┴┘
+0
+```
+An inverted example with merges and extra padding between vertices.
+```txt
+9
+│
+│ 8
+╰╮├╮
+7│││
+╰┤││
+6│││
+├╯││
+5╭╯│
+├│╮│
+├╯││
+│╭╯│
+││4│
+│││╰╮
+3│╰╮│
+├│╮││
+│├┴╯│
+│2╭─╯
+│├╯
+│1
+├╯
 0
 ```

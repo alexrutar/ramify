@@ -38,8 +38,8 @@ fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expecte
             vtx.data
         }
 
-        fn annotate<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
-            write!(buf, "#")
+        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
+            buf.push('#')
         }
     }
 

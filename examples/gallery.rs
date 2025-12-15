@@ -63,8 +63,8 @@ impl Ramify<Rc<Vtx>> for AnnotatingRamifier {
         vtx.data
     }
 
-    fn annotate<B: std::fmt::Write>(&self, vtx: &Rc<Vtx>, mut buf: B) -> std::fmt::Result {
-        buf.write_str(vtx.annotation)
+    fn annotate(&self, vtx: &Rc<Vtx>, buf: &mut String) {
+        buf.push_str(vtx.annotation);
     }
 
     fn is_identical(&self, vtx: &Rc<Vtx>, other: &Rc<Vtx>) -> bool {

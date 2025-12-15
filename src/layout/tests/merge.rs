@@ -1,5 +1,5 @@
 use crate::{Config, Generator, Ramify};
-use std::{fmt, rc::Rc};
+use std::rc::Rc;
 
 #[derive(Clone)]
 struct Vtx<T> {
@@ -46,8 +46,8 @@ fn assert_diag_config<B: crate::writer::WriteBranch>(
             vtx.data
         }
 
-        fn annotate<B: fmt::Write>(&self, _: &Rc<Vtx<char>>, mut buf: B) -> fmt::Result {
-            buf.write_str(self.0)
+        fn annotate(&self, _: &Rc<Vtx<char>>, buf: &mut String) {
+            buf.push_str(self.0);
         }
 
         fn is_identical(&self, vtx: &Rc<Vtx<char>>, other: &Rc<Vtx<char>>) -> bool {
@@ -230,29 +230,27 @@ a
         root,
         "#\n#",
         config,
-        "  #
-0 #
+        "    #
+0   #
 ├─╯
 │ │ #
 │ 1 #
-│ │ #
-│ 2 #
+│ │   #
+│ 2   #
 │ ├─╯
-│ │ │ #
-│ 3 │ #
-│ │ ╭───╯
+│ │ ╭───╯ #
+│ 3     │ #
 │ ├─┴─╯ │
 ├─│─╮ │ │
 │ │ ╰─╮ │ #
 4 │ │ ╰─╮ #
-│ │ │ │   #
-│ │ 5 │   #
+│ │ │ │ #
+│ │ 5 │ #
 │ ╭─╯ │
 ├─╯ │ │
 ├─│─╮ │
-│ │ ╰─╮ #
-6 │ ╭─╯ #
-│ ╭─╯ │
+│ ╭─╯ │ #
+6   │ │ #
 ├─╯ │ │
 │ │ │ │ #
 7 │ │ │ #
@@ -260,10 +258,10 @@ a
 │ │ │ │ #
 8 │ │ │ #
 ╰─╮ ├─╮
-│ ╰─╮   #
-│ 9     #
-│   #
-a   #
+│ ╰─╮ #
+│ 9   #
+│ #
+a #
 ",
     );
 }

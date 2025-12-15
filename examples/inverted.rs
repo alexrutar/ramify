@@ -46,8 +46,8 @@ impl<'t> Ramify<&'t Vtx> for AnnotatingRamifier {
         vtx.data
     }
 
-    fn annotate<B: std::fmt::Write>(&self, vtx: &&'t Vtx, mut buf: B) -> std::fmt::Result {
-        buf.write_str(&vtx.annotation)
+    fn annotate(&self, vtx: &&'t Vtx, buf: &mut String) {
+        buf.push_str(&vtx.annotation)
     }
 }
 

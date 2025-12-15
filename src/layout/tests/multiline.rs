@@ -16,8 +16,8 @@ fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
             vtx.data
         }
 
-        fn annotate<B: fmt::Write>(&self, _: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
-            buf.write_str(">0\n>1\n>2")
+        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
+            buf.push_str(">0\n>1\n>2");
         }
     }
 
@@ -291,11 +291,10 @@ fn final_annotation_alignment() {
             vtx.data
         }
 
-        fn annotate<B: fmt::Write>(&self, vtx: &&'t Vtx<char>, mut buf: B) -> fmt::Result {
+        fn annotate(&self, vtx: &&'t Vtx<char>, buf: &mut String) {
             if vtx.data == '8' {
-                buf.write_str(">0\n>1\n>2")?;
+                buf.push_str(">0\n>1\n>2");
             }
-            Ok(())
         }
     }
     assert_diag_impl(
