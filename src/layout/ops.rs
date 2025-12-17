@@ -1,4 +1,3 @@
-mod compact;
 #[cfg(test)]
 mod tests;
 
@@ -8,7 +7,6 @@ use crate::{
     columns::{Alignment, Apply, MinIndices, Position, Shim},
     writer::{Branch, DiagramWriter, MergeBranch, WriteBranch},
 };
-pub use compact::{Compact, ContinueCompact, MarkerCompact, SkipCompact};
 
 /// A special merge command.
 ///
@@ -39,7 +37,8 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
             Position::Isolated => Align.apply(state, align, span, minimal),
             Position::AfterLast | Position::BeforeFirst => {
                 // we know minimal is empty
-                Compact.apply(state, align, span, minimal)
+                fork_impl::<false, false, _, _, _>(state, align, span, [], Branch::Continue)?;
+                Ok((1, minimal.is_empty() || span.len() == 1))
             }
             Position::First => fork_impl_generic::<false, true, _, _, _>(
                 state,
@@ -119,10 +118,11 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Sk
     }
 }
 
-/// A shim which acts as though the column existed in the original database.
-pub struct Continue<'c>(pub &'c mut usize);
+/// A shim which acts as an extra column, but still reporting any alignment required by the
+/// internal column.
+pub struct Extra<'c>(pub &'c mut usize);
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Continue<'c> {
+impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Extra<'c> {
     type Error = io::Error;
 
     fn apply<V>(
@@ -132,13 +132,14 @@ impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> fo
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
+        // do not branch, but still align and report required alignment
         let ret = fork_impl::<false, true, _, _, _>(state, align, span, minimal, Branch::Continue)?;
         *self.0 = span.last().unwrap().1;
         Ok(ret)
     }
 }
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Continue<'c> {
+impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Extra<'c> {
     fn insert(
         self,
         state: &'a mut DiagramWriter<W, B>,
