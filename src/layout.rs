@@ -197,13 +197,10 @@ fn write_preparation_row_inverted<W: io::Write, V, R: TryRamify<V>, B: WriteBran
     first: bool,
     col: &mut usize,
 ) -> io::Result<RowState> {
-    match (cols.config().minimize_width, first) {
-        (false, false) => cols.write_shimmed_row(writer, ops::Fork, (*col, ops::Continue(col))),
-        (true, false) => {
-            cols.write_shimmed_row(writer, ops::Compact, (*col, ops::ContinueCompact(col)))
-        }
-        (false, true) => cols.write_row(writer, ops::Skip),
-        (true, true) => cols.write_row(writer, ops::SkipCompact),
+    if first {
+        cols.write_row(writer, ops::Skip)
+    } else {
+        cols.write_shimmed_row(writer, ops::Fork, (*col, ops::Extra(col)))
     }
 }
 
@@ -410,7 +407,6 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
             Some(last_line) => {
                 match lines.next_back() {
                     None => {
-                        // exactly one annotation line
                         let state = self.columns.write_shimmed_row(
                             &mut writer,
                             ops::Fork,
@@ -440,19 +436,11 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
                             writer.write_annotation(line, &state)?;
                         }
 
-                        let new_state = if self.config().minimize_width {
-                            self.columns.write_shimmed_row(
-                                &mut writer,
-                                ops::Compact,
-                                (col, ops::MarkerCompact(marker_char)),
-                            )?
-                        } else {
-                            self.columns.write_shimmed_row(
-                                &mut writer,
-                                ops::Fork,
-                                (col, ops::Marker(marker_char)),
-                            )?
-                        };
+                        let new_state = self.columns.write_shimmed_row(
+                            &mut writer,
+                            ops::Fork,
+                            (col, ops::Marker(marker_char)),
+                        )?;
 
                         // temporarily store the width, etc. in the previous state, and use it
                         // to write the annotation
