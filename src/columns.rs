@@ -8,6 +8,10 @@
 //! - idea of the 'state' being intermediate between two rows
 //! - predictive rendering and preparation for following vertices
 //! - delayed branching (if there is padding)
+//! - delayed vertex vs normal vertex mode:
+//!   - if the vertex is written last, we do not branch it at all (have to wait until after it is
+//!   written) especially to avoid breaking the annotation after we have already started writing it
+//! - delayed vertex mode is useful if your annotations only have exactly one line
 //! - width limitations
 //! - explain how width interacts with the annotation (we need to make space, so the tree does not
 //!   overlap with the annotation in subsequent rows)

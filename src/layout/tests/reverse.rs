@@ -109,9 +109,9 @@ fn reversed_basic() {
     assert_diag_annot(
         ex2(),
         config.clone(),
-        "        3
-        2
-0       1
+        "    3
+    2
+0   1
 ├─┴─╯
 │ │ ├─╯   3
 │ │ │ │   2
@@ -170,7 +170,7 @@ fn inner_whitespace() {
     assert_diag_short(
         root,
         config,
-        "0   #
+        "0 #
 ├┴╯
 │1│ #
 │ 2 #
@@ -194,9 +194,9 @@ fn reversed_no_annotation() {
     assert_diag_annot(
         ex4(),
         config,
-        "    3
-    2
-0   1
+        "  3
+  2
+0 1
 ├┴╯
 ││├╯ 3
 ││││ 2
@@ -232,9 +232,9 @@ fn reversed_no_annotation() {
     assert_diag_annot(
         ex4(),
         config,
-        "    3
-    2
-0   1
+        "  3
+  2
+0 1
 ├┴╯
 ││├╯ 3
 ││││ 2

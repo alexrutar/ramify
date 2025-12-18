@@ -35,11 +35,13 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
     ) -> Result<(usize, bool), Self::Error> {
         match minimal.pos() {
             Position::Isolated => Align.apply(state, align, span, minimal),
-            Position::AfterLast | Position::BeforeFirst => {
-                // we know minimal is empty
-                fork_impl::<false, false, _, _, _>(state, align, span, [], Branch::Continue)?;
-                Ok((1, minimal.is_empty() || span.len() == 1))
-            }
+            Position::AfterLast | Position::BeforeFirst => fork_impl_suppressed::<false, _, _, _>(
+                state,
+                align,
+                span,
+                minimal,
+                Branch::Continue,
+            ),
             Position::First => fork_impl_generic::<false, true, _, _, _>(
                 state,
                 align,
@@ -65,6 +67,38 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
                 Ok((0, true))
             }
         }
+    }
+}
+
+/// Either shims a marker, or writes a marker in place of the column while preserving the alignment
+/// of the overwritten column.
+#[derive(Debug, Clone, Copy)]
+pub struct DelayedMarker(pub char);
+
+impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for DelayedMarker {
+    type Error = io::Error;
+
+    fn apply<V>(
+        self,
+        state: &'a mut DiagramWriter<W, B>,
+        align: Alignment,
+        span: &mut [(V, usize)],
+        minimal: MinIndices<'_>,
+    ) -> Result<(usize, bool), Self::Error> {
+        fork_impl_suppressed::<false, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
+    }
+}
+
+impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for DelayedMarker {
+    fn insert(
+        self,
+        writer: &'a mut DiagramWriter<W, B>,
+        gap: Alignment,
+    ) -> Result<(usize, usize, bool), Self::Error> {
+        let leading = gap.c - gap.l;
+        writer.queue_fill(leading);
+        writer.write_branch(Branch::Marker(self.0))?;
+        Ok((leading + 1, 0, true))
     }
 }
 
@@ -100,7 +134,7 @@ impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Mar
     }
 }
 
-/// Skip the row, but perform width computations.
+/// Skip the row and suppress width computations.
 #[derive(Debug, Clone, Copy)]
 pub struct Skip;
 
@@ -114,15 +148,15 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Sk
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<true, true, _, _, _>(state, align, span, minimal, Branch::Marker(' '))
+        fork_impl_suppressed::<true, _, _, _>(state, align, span, minimal, Branch::Marker(' '))
     }
 }
 
 /// A shim which acts as an extra column, but still reporting any alignment required by the
 /// internal column.
-pub struct Extra<'c>(pub &'c mut usize);
+pub struct DelayedFork<'c>(pub &'c mut usize);
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Extra<'c> {
+impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for DelayedFork<'c> {
     type Error = io::Error;
 
     fn apply<V>(
@@ -132,14 +166,14 @@ impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> fo
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        // do not branch, but still align and report required alignment
-        let ret = fork_impl::<false, true, _, _, _>(state, align, span, minimal, Branch::Continue)?;
+        let ret =
+            fork_impl_suppressed::<false, _, _, _>(state, align, span, minimal, Branch::Continue)?;
         *self.0 = span.last().unwrap().1;
         Ok(ret)
     }
 }
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Extra<'c> {
+impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for DelayedFork<'c> {
     fn insert(
         self,
         state: &'a mut DiagramWriter<W, B>,
@@ -201,6 +235,19 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Fo
     ) -> Result<(usize, bool), Self::Error> {
         fork_impl::<false, false, _, _, _>(state, align, span, minimal, Branch::Continue)
     }
+}
+
+/// Write a row, ignoring the minimal indices but still reporting if the column is isolated or not.
+#[inline]
+fn fork_impl_suppressed<const FIXED: bool, V, W: io::Write, B: WriteBranch>(
+    writer: &mut DiagramWriter<W, B>,
+    col: Alignment,
+    span: &mut [(V, usize)],
+    minimal: MinIndices<'_>,
+    continuation: Branch,
+) -> io::Result<(usize, bool)> {
+    fork_impl::<FIXED, true, _, _, _>(writer, col, span, [], continuation)?;
+    Ok((1, minimal.is_empty() || span.len() == 1))
 }
 
 #[inline]
