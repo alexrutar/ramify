@@ -262,7 +262,7 @@ pub trait TryRamify<V> {
     /// Try to iterate over the children of the vertex.
     ///
     /// If it is not possible to determine the children, a placeholder must be returned in the `Err(_)`
-    /// variant. The placeholder will be passed to [`retry`](TryRamify::retry) for subsequent
+    /// variant. The placeholder will be passed to [`retry_ramify`](TryRamify::retry_ramify) for subsequent
     /// attempts.
     ///
     /// The marker character and the annotation of the previous vertex are used, regardless
@@ -275,7 +275,8 @@ pub trait TryRamify<V> {
     ///
     /// 1. *Permanent failure*: This method can be used to abort on an unrecoverable failure. Since the error is
     ///    propagated to the caller, the caller can use this to abort iteration permanently. In this
-    ///    case, any placeholder vertex can be returned in the `Err(_)` variant.
+    ///    case, the placeholder in the `Err(_)` variant would just be the unit enum since it is
+    ///    unused anyway.
     /// 2. *Temporary failure*: If the failure is temporary, the original vertex can be returned in
     ///    the `Err(_)` variant and the caller can wait (or do something else) before attempting
     ///    to write a vertex row again. In this case, `retry` is just a call to `try_ramify`.
@@ -290,8 +291,8 @@ pub trait TryRamify<V> {
 
     /// Try to iterate over the children of a vertex when the previous attempt failed.
     ///
-    /// Iteration may fail multiple times, in which case the value contained in the
-    /// [`Replacement`] in the previous attempt will be passed to the subsequent attempt.
+    /// Iteration may fail multiple times, in which case the placeholder contained in the
+    /// [`Failed`] struct from the previous attempt will be passed to the subsequent attempt.
     fn retry_ramify(
         &mut self,
         prev: Self::Placeholder,

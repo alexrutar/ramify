@@ -87,20 +87,26 @@ pub struct Config<B> {
     /// Margin requested in `margin_left` is added to of this parameter. This is the number of
     /// gutters. The default value is `0`.
     pub min_diagram_width: usize,
-    /// Whether to minimize the width as much as possible. If set, each row containing a vertex
-    /// marker will occupy the minimal number of columns possible and there will be no internal
-    /// whitespace. This almost always makes the diagram taller. The default value is `false`.
+    /// Whether to minimize the width. If set, the preparation rows between vertex
+    /// markers will also remove all internal whitespace. This almost always
+    /// makes the branch diagram taller. The default value is `false`.
     pub minimize_width: bool,
+    /// Write the vertex on the last row of the annotation instead of the first. For inverted
+    /// writers, this can make the branch diagram more compact. In particular, if you know that
+    /// your annotations occupy at most one line, it can be useful to set this value to `true`.
+    /// The default valu is `false`.
+    pub annotation_before_vertex: bool,
     branch_writer: PhantomData<B>,
 }
 
 impl<B> fmt::Debug for Config<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Config")
+        f.debug_struct(&format!("Config ({})", std::any::type_name::<B>()))
             .field("row_padding", &self.row_padding)
             .field("annotation_margin", &self.annotation_margin)
             .field("min_diagram_width", &self.min_diagram_width)
             .field("minimize_width", &self.minimize_width)
+            .field("annotation_before_vertex", &self.annotation_before_vertex)
             .finish()
     }
 }
@@ -113,6 +119,7 @@ impl<B> Clone for Config<B> {
             annotation_margin: self.annotation_margin,
             min_diagram_width: self.min_diagram_width,
             minimize_width: self.minimize_width,
+            annotation_before_vertex: self.annotation_before_vertex,
             branch_writer: PhantomData,
         }
     }
@@ -151,6 +158,7 @@ impl<B> Config<B> {
             annotation_margin: 1,
             min_diagram_width: 0,
             minimize_width: false,
+            annotation_before_vertex: false,
             branch_writer: PhantomData,
         }
     }
@@ -165,6 +173,7 @@ impl<B> Config<B> {
             annotation_margin: self.annotation_margin,
             min_diagram_width: self.min_diagram_width,
             minimize_width: self.minimize_width,
+            annotation_before_vertex: self.annotation_before_vertex,
             branch_writer: PhantomData,
         }
     }

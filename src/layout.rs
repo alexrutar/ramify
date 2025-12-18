@@ -191,7 +191,7 @@ fn write_preparation_row<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
     Ok(())
 }
 
-fn write_preparation_row_inverted<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
+fn write_preparation_row_delayed<W: io::Write, V, R: TryRamify<V>, B: WriteBranch>(
     cols: &mut Columns<V, R, B, R::Placeholder>,
     writer: &mut DiagramWriter<W, B>,
     first: bool,
@@ -200,7 +200,7 @@ fn write_preparation_row_inverted<W: io::Write, V, R: TryRamify<V>, B: WriteBran
     if first {
         cols.write_row(writer, ops::Skip)
     } else {
-        cols.write_shimmed_row(writer, ops::Fork, (*col, ops::Extra(col)))
+        cols.write_shimmed_row(writer, ops::Fork, (*col, ops::DelayedFork(col)))
     }
 }
 
@@ -298,10 +298,11 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
         &mut self,
         writer: W,
     ) -> Result<bool, WriteVertexError<R::Error>> {
-        if B::INVERTED {
-            self.try_write_vertex_inverted(writer)
-        } else {
-            self.try_write_vertex_normal(writer)
+        match (self.config().annotation_before_vertex, B::INVERTED) {
+            (false, true) => self.try_write_vertex_delayed_impl(writer, |s| s.lines().rev()),
+            (true, false) => self.try_write_vertex_delayed_impl(writer, |s| s.lines()),
+            (true, true) => self.try_write_vertex_impl(writer, |s| s.lines().rev()),
+            (false, false) => self.try_write_vertex_impl(writer, |s| s.lines()),
         }
     }
 
@@ -318,10 +319,15 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
             })
     }
 
-    fn try_write_vertex_normal<W: io::Write>(
-        &mut self,
+    fn try_write_vertex_impl<'a, W: io::Write, I, F>(
+        &'a mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError<R::Error>> {
+        f: F,
+    ) -> Result<bool, WriteVertexError<R::Error>>
+    where
+        I: Iterator<Item = &'a str>,
+        F: FnOnce(&'a str) -> I,
+    {
         let mut writer = DiagramWriter::new(writer);
 
         // perform the substitution first since we will use information
@@ -337,7 +343,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
         // write the vertex row and get the diagram width
         let mut state = write_vertex_row(&mut self.columns, &mut writer, col, marker_char)?;
 
-        let mut lines = self.annotation_buf.lines();
+        let mut lines = f(&self.annotation_buf);
 
         // finish the vertex row and then write the annotation lines
         match lines.next() {
@@ -372,15 +378,16 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
         }
     }
 
-    /// Try to write the next vertex in 'inverted' mode.
-    ///
-    /// Instead of writing the vertex and then preparing for the next vertex to be written, we
-    /// start by preparing for the vertex row to be written and then write it last. We also write
-    /// the padding that follows the row if we can determine that there will be another row.
-    fn try_write_vertex_inverted<W: io::Write>(
-        &mut self,
+    /// Write the vertex at the end of the annotation instead of at the beginning.
+    fn try_write_vertex_delayed_impl<'a, W: io::Write, I, F>(
+        &'a mut self,
         writer: W,
-    ) -> Result<bool, WriteVertexError<R::Error>> {
+        f: F,
+    ) -> Result<bool, WriteVertexError<R::Error>>
+    where
+        I: DoubleEndedIterator<Item = &'a str>,
+        F: FnOnce(&'a str) -> I,
+    {
         // substitute and update minimal index
         let Some((mut col, marker_char)) = self
             .columns
@@ -393,8 +400,8 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
         let mut writer = DiagramWriter::<W, B>::new(writer);
 
         // Write annotation lines, with the vertex on the last line.
-        let mut lines = self.annotation_buf.lines();
-        let maybe_last_line = lines.next();
+        let mut lines = f(&self.annotation_buf);
+        let maybe_last_line = lines.next_back();
 
         let mut state = match maybe_last_line {
             None => {
@@ -405,19 +412,19 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
                 state
             }
             Some(last_line) => {
-                match lines.next_back() {
+                match lines.next() {
                     None => {
                         let state = self.columns.write_shimmed_row(
                             &mut writer,
                             ops::Fork,
-                            (col, ops::Marker(marker_char)),
+                            (col, ops::DelayedMarker(marker_char)),
                         )?;
                         writer.write_annotation(last_line, &state)?;
 
                         state
                     }
                     Some(first_line) => {
-                        let mut state = write_preparation_row_inverted(
+                        let mut state = write_preparation_row_delayed(
                             &mut self.columns,
                             &mut writer,
                             self.first,
@@ -425,8 +432,8 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
                         )?;
                         writer.write_annotation(first_line, &state)?;
 
-                        for line in lines.rev() {
-                            let new = write_preparation_row_inverted(
+                        for line in lines {
+                            let new = write_preparation_row_delayed(
                                 &mut self.columns,
                                 &mut writer,
                                 self.first,
@@ -439,7 +446,7 @@ impl<V, R: TryRamify<V>, B: WriteBranch> Generator<V, R, B, R::Placeholder> {
                         let new_state = self.columns.write_shimmed_row(
                             &mut writer,
                             ops::Fork,
-                            (col, ops::Marker(marker_char)),
+                            (col, ops::DelayedMarker(marker_char)),
                         )?;
 
                         // temporarily store the width, etc. in the previous state, and use it

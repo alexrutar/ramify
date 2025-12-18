@@ -92,6 +92,10 @@ struct Args {
     #[argh(option, default = "1")]
     annotation_margin: usize,
 
+    /// write the annotation before the vertex
+    #[argh(switch)]
+    annotation_before_vertex: bool,
+
     /// minimum width of the diagram (in gutters)
     #[argh(option, default = "0")]
     min_diagram_width: usize,
@@ -243,7 +247,7 @@ fn main() -> io::Result<()> {
         "merge" => graph_merge(),
         _ => {
             eprintln!("Unknown graph: {}", args.graph);
-            eprintln!("Available graphs: simple, large, complex, wide, annotations");
+            eprintln!("Available graphs: simple, large, complex, wide, annotations, merge, merge-annotations");
             std::process::exit(1);
         }
     };
@@ -254,6 +258,7 @@ fn main() -> io::Result<()> {
     config.annotation_margin = args.annotation_margin;
     config.min_diagram_width = args.min_diagram_width;
     config.minimize_width = args.minimize_width;
+    config.annotation_before_vertex = args.annotation_before_vertex;
 
     // Select the style and render
     // We need to use a match here because Rust requires concrete types at compile time
