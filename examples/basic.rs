@@ -2,7 +2,7 @@
 
 use std::io;
 
-use ramify::{Config, Generator, Ramify};
+use ramify::{Config, Ramify, writer::Style};
 
 /// A basic recursive tree implementation.
 struct Vtx {
@@ -70,16 +70,16 @@ fn main() -> io::Result<()> {
         Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
     };
 
-    let mut config = Config::with_rounded_corners();
-
-    // the amount of space between vertex rows / annotations
-    config.row_padding = 1;
-
-    let mut generator = Generator::init(&tree, AnnotatingRamifier, config);
+    let mut generator = Config::new()
+        .row_padding(1) // the amount of space between vertex rows / annotations
+        .generator(&tree, AnnotatingRamifier);
 
     // repeatedly write to stdout until the tree is empty
-    let mut writer = io::stdout();
-    while generator.write_vertex(&mut writer)? {}
+    let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
+    while !generator.is_empty() {
+        generator = generator.write_vertex(&mut writer)?;
+    }
+    // generator.write_vertex(&mut writer)? {}
 
     Ok(())
 }

@@ -10,7 +10,7 @@
 //! - delayed branching (if there is padding)
 //! - delayed vertex vs normal vertex mode:
 //!   - if the vertex is written last, we do not branch it at all (have to wait until after it is
-//!   written) especially to avoid breaking the annotation after we have already started writing it
+//!     written) especially to avoid breaking the annotation after we have already started writing it
 //! - delayed vertex mode is useful if your annotations only have exactly one line
 //! - width limitations
 //! - explain how width interacts with the annotation (we need to make space, so the tree does not
@@ -49,22 +49,23 @@
 //! ```
 mod iter;
 
-use std::iter::repeat;
+use std::{
+    iter::{Map, repeat},
+    vec::IntoIter,
+};
 
 pub use iter::{Alignment, Apply, ColumnsMut, MinIndices, Position, Shim, Status};
 
-use crate::{Failed, TryRamify, writer::Config};
+use crate::{Config, TryRamify};
 
 /// The state after writing a row.
 #[must_use]
 #[derive(Debug, Clone, Copy)]
 pub struct RowState {
     /// The alignment (adjusted based on the configuration).
-    alignment: usize,
+    pub(crate) alignment: usize,
     /// The width.
-    width: usize,
-    /// The padding.
-    margin: usize,
+    pub(crate) width: usize,
     /// Whether every minimal index is isolated.
     isolated: bool,
     /// Whether or not the row is ready for a vertex to be written.
@@ -78,9 +79,9 @@ impl RowState {
         self.width = other.width;
     }
 
-    pub fn alignment(&self) -> (usize, usize, usize) {
-        (self.margin, self.alignment, self.width)
-    }
+    //     pub fn alignment(&self) -> (usize, usize, usize) {
+    //         (self.margin, self.alignment, self.width)
+    //     }
 
     pub fn is_isolated(&self) -> bool {
         self.isolated
@@ -91,9 +92,9 @@ impl RowState {
     }
 }
 
-pub struct DebugCols<'a, V, R: TryRamify<V>, B>(&'a Columns<V, R, B, R::Placeholder>);
+pub struct DebugCols<'a, V, R: TryRamify<V>>(&'a Columns<V, R>);
 
-impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugCols<'a, V, R, B> {
+impl<'a, V, R: TryRamify<V>> std::fmt::Debug for DebugCols<'a, V, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list()
             .entries(
@@ -106,9 +107,9 @@ impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugCols<'a, V, R, B> {
     }
 }
 
-struct DebugMinimal<'a, V, R: TryRamify<V>, B>(&'a Columns<V, R, B, R::Placeholder>);
+struct DebugMinimal<'a, V, R: TryRamify<V>>(&'a Columns<V, R>);
 
-impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugMinimal<'a, V, R, B> {
+impl<'a, V, R: TryRamify<V>> std::fmt::Debug for DebugMinimal<'a, V, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(idx) = self.0.min_index {
             std::fmt::Debug::fmt(&Some((idx, &self.0.equivalent_to_min)), f)
@@ -118,9 +119,9 @@ impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugMinimal<'a, V, R, B> {
     }
 }
 
-struct DebugActive<'a, V, R: TryRamify<V>, B>(&'a Columns<V, R, B, R::Placeholder>);
+struct DebugActive<'a, V, R: TryRamify<V>>(&'a Columns<V, R>);
 
-impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugActive<'a, V, R, B> {
+impl<'a, V, R: TryRamify<V>> std::fmt::Debug for DebugActive<'a, V, R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Active")
             .field("columns", &DebugCols(self.0))
@@ -129,8 +130,55 @@ impl<'a, V, R: TryRamify<V>, B> std::fmt::Debug for DebugActive<'a, V, R, B> {
     }
 }
 
+pub struct SuspendedColumns<V, R> {
+    inner: Columns<V, R>,
+    min_index: usize,
+    col: usize,
+    marker: char,
+}
+
+type ActiveVertices<V> = Map<IntoIter<(V, usize)>, fn((V, usize)) -> V>;
+
+impl<V, R> SuspendedColumns<V, R> {
+    /// Recover the active vertices.
+    pub fn into_active_vertices(self) -> ActiveVertices<V> {
+        self.inner.into_active_vertices()
+    }
+
+    /// Resume iteration by manually specifying new children.
+    pub fn resume<I>(mut self, children: I) -> (Columns<V, R>, usize, char)
+    where
+        I: IntoIterator<Item = V>,
+        R: TryRamify<V>,
+    {
+        let (col, m) = {
+            if self.min_index == self.inner.columns.len() {
+                // append the new elements
+                self.inner
+                    .columns
+                    .extend(children.into_iter().zip(repeat(self.col)));
+            } else {
+                let last = {
+                    let mut iter = self.inner.columns.splice(
+                        self.min_index..self.min_index + 1,
+                        children.into_iter().zip(repeat(self.col)),
+                    );
+                    iter.next().unwrap()
+                };
+                // put the last element back
+                self.inner.columns.push(last);
+            }
+            (self.col, self.marker)
+        };
+
+        self.inner.recompute_minimal();
+
+        (self.inner, col, m)
+    }
+}
+
 #[derive(Debug)]
-pub struct Columns<V, R, B, P> {
+pub struct Columns<V, R> {
     columns: Vec<(V, usize)>,
     // The first index is the minimal one, and the rest are the equivalent ones.
     // We store it like this because it improves codegen in the acyclic case since
@@ -139,32 +187,32 @@ pub struct Columns<V, R, B, P> {
     // `min_index.is_none()` iff `columns.is_empty()`
     min_index: Option<usize>,
     // if `try_ramify` fails, store the key, the column, and the marker char
-    failed_placeholder: Option<(P, usize, char)>,
+    // failed_placeholder: Option<(P, usize, char)>,
     equivalent_to_min: Vec<usize>,
     ramifier: R,
-    config: Config<B>,
+    config: Config,
 }
 
-impl<V, R, B, P> Columns<V, R, B, P> {
+impl<V, R> Columns<V, R> {
     /// Initialize with a root vertex and the provided ramifier and configuration.
-    pub fn init(root: V, ramifier: R, config: Config<B>) -> Self {
+    pub fn init(root: V, ramifier: R, config: Config) -> Self {
         Self {
             columns: vec![(root, 0)],
             ramifier,
             min_index: Some(0),
-            failed_placeholder: None,
+            // failed_placeholder: None,
             equivalent_to_min: Vec::new(),
             config,
         }
     }
 
-    /// Get a reference to the configuration.
-    pub fn config(&self) -> &Config<B> {
-        &self.config
+    /// Get the current configuration.
+    pub fn config(&self) -> Config {
+        self.config
     }
 
-    /// Get a mutable reference to the configuration.
-    pub fn config_mut(&mut self) -> &mut Config<B> {
+    /// Get a mutable reference to the internal configuration.
+    pub fn config_mut(&mut self) -> &mut Config {
         &mut self.config
     }
 
@@ -178,7 +226,7 @@ impl<V, R, B, P> Columns<V, R, B, P> {
     }
 
     /// Recover the active vertices.
-    pub fn into_active_vertices(self) -> impl ExactSizeIterator<Item = V> {
+    pub fn into_active_vertices(self) -> ActiveVertices<V> {
         self.columns.into_iter().map(|(v, _)| v)
     }
 
@@ -208,13 +256,12 @@ impl<V, R, B, P> Columns<V, R, B, P> {
             } else {
                 status.isolated
             };
-        let alignment = status.reserved_width().max(self.config.min_diagram_width);
+        let alignment = status.reserved_width();
         let width = status.width;
 
         RowState {
             alignment,
             width,
-            margin: self.config.annotation_margin,
             isolated: status.isolated,
             ready,
         }
@@ -223,102 +270,98 @@ impl<V, R, B, P> Columns<V, R, B, P> {
     #[allow(unused)]
     pub fn debug_active(&self) -> impl std::fmt::Debug
     where
-        R: TryRamify<V, Placeholder = P>,
+        R: TryRamify<V>,
     {
         DebugActive(self)
     }
 }
 
-impl<V, R, B, P> Columns<V, R, B, P> {
+impl<V, R> Columns<V, R> {
     /// Substitute the vertex at the minimal index, replacing it with its children and
     /// recomputing the minimal index. Returns `None` if there are no columns.
     ///
     /// This returns the column at the index as well as the corresponding marker, and writes the
     /// annotation to the provided buffer.
-    pub fn try_substitute(&mut self, buf: &mut String) -> Result<Option<(usize, char)>, R::Error>
+    #[allow(clippy::type_complexity)]
+    pub fn try_substitute(
+        mut self,
+        buf: &mut String,
+    ) -> Result<(Self, Option<(usize, char)>), (SuspendedColumns<V, R>, R::Error)>
     where
-        R: TryRamify<V, Placeholder = P>,
+        R: TryRamify<V>,
     {
         let Some(idx) = self.min_index else {
-            return Ok(None);
+            return Ok((self, None));
         };
 
-        let ret = match self.failed_placeholder.take() {
-            // if the previous call failed, retry with the stored attempt
-            Some((k, col, m)) => match self.ramifier.retry_ramify(k) {
-                Ok(children) => {
-                    if idx + 1 == self.columns.len() {
-                        // append the new elements
-                        self.columns.extend(children.into_iter().zip(repeat(col)));
-                    } else {
-                        let last = {
-                            let mut iter = self
-                                .columns
-                                .splice(idx..idx + 1, children.into_iter().zip(repeat(col)));
-                            iter.next().unwrap()
-                        };
-                        // put the last element back
-                        self.columns.push(last);
-                    }
-                    (col, m)
+        let ret = if idx + 1 == self.columns.len() {
+            // pop the minimal element
+            let (vtx, col) = self.columns.pop().unwrap();
+            let marker = self.ramifier.marker(&vtx);
+            buf.clear();
+            self.ramifier.annotate(&vtx, buf);
+
+            // determine the data associated with the element
+            let res = self.ramifier.try_ramify(vtx).map(|children| {
+                self.columns.extend(children.into_iter().zip(repeat(col)));
+                (col, marker)
+            });
+
+            match res {
+                Ok(t) => t,
+                Err(err) => {
+                    let failed = SuspendedColumns {
+                        inner: self,
+                        min_index: idx,
+                        col,
+                        marker,
+                    };
+                    return Err((failed, err));
                 }
-                Err(Failed { placeholder, err }) => {
-                    self.failed_placeholder = Some((placeholder, col, m));
-                    return Err(err);
-                }
-            },
-            // in order to optimize substitutions, we temporarily swap indices
-            // into the target, and then swap back at the end
-            None => {
-                if idx + 1 == self.columns.len() {
-                    // pop the minimal element
-                    let (vtx, col) = self.columns.pop().unwrap();
-                    let m = self.ramifier.marker(&vtx);
-                    buf.clear();
-                    self.ramifier.annotate(&vtx, buf);
+            }
+        } else {
+            // swap the minimal element with the last element
+            let (vtx, col) = self.columns.swap_remove(idx);
+            let marker = self.ramifier.marker(&vtx);
+            buf.clear();
+            self.ramifier.annotate(&vtx, buf);
+            let res = self.ramifier.try_ramify(vtx).map(|children| {
+                // splice onto the swapped last element, inserting the new children
+                let last = {
+                    let mut iter = self
+                        .columns
+                        .splice(idx..idx + 1, children.into_iter().zip(repeat(col)));
+                    iter.next().unwrap()
+                };
+                // put the last element back
+                self.columns.push(last);
+                (col, marker)
+            });
 
-                    // determine the data associated with the element
-                    match self.ramifier.try_ramify(vtx) {
-                        Ok(children) => {
-                            self.columns.extend(children.into_iter().zip(repeat(col)));
-                            (col, m)
-                        }
-                        Err(Failed { placeholder, err }) => {
-                            self.failed_placeholder = Some((placeholder, col, m));
-
-                            return Err(err);
-                        }
-                    }
-                } else {
-                    // swap the minimal element with the last element
-                    let (vtx, col) = self.columns.swap_remove(idx);
-                    let m = self.ramifier.marker(&vtx);
-                    buf.clear();
-                    self.ramifier.annotate(&vtx, buf);
-
-                    match self.ramifier.try_ramify(vtx) {
-                        Ok(children) => {
-                            // splice onto the swapped last element, inserting the new children
-                            let last = {
-                                let mut iter = self
-                                    .columns
-                                    .splice(idx..idx + 1, children.into_iter().zip(repeat(col)));
-                                iter.next().unwrap()
-                            };
-                            // put the last element back
-                            self.columns.push(last);
-                            (col, m)
-                        }
-                        Err(Failed { placeholder, err }) => {
-                            self.failed_placeholder = Some((placeholder, col, m));
-
-                            return Err(err);
-                        }
-                    }
+            match res {
+                Ok(t) => t,
+                Err(err) => {
+                    let failed = SuspendedColumns {
+                        inner: self,
+                        min_index: idx,
+                        col,
+                        marker,
+                    };
+                    return Err((failed, err));
                 }
             }
         };
 
+        self.recompute_minimal();
+
+        Ok((self, Some(ret)))
+    }
+
+    /// Recompute the minimal index after iteration.
+    fn recompute_minimal(&mut self)
+    where
+        R: TryRamify<V>,
+    {
         // recompute the minimal index
         self.min_index = self
             .columns
@@ -339,8 +382,6 @@ impl<V, R, B, P> Columns<V, R, B, P> {
                 }
             }
         }
-
-        Ok(Some(ret))
     }
 
     /// Get a mutable column iterator holding the minimal indices.
@@ -385,20 +426,19 @@ impl<V, R, B, P> Columns<V, R, B, P> {
     where
         R: TryRamify<V>,
     {
+        let mut i = 0;
         let mut min_i = 0;
-        self.columns = std::mem::take(&mut self.columns)
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, (v, c))| {
-                if self.equivalent_to_min.get(min_i).is_some_and(|m| *m == i) {
-                    min_i += 1;
-                    self.ramifier.cleanup(v);
-                    None
-                } else {
-                    Some((v, c))
-                }
-            })
-            .collect();
+        self.columns.retain(|_| {
+            if self.equivalent_to_min.get(min_i).is_some_and(|m| *m == i) {
+                i += 1;
+                min_i += 1;
+                false
+            } else {
+                i += 1;
+                true
+            }
+        });
+
         self.equivalent_to_min.clear();
     }
 

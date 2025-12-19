@@ -1,11 +1,9 @@
 #[cfg(test)]
-mod tests;
-
-use std::io;
+pub(crate) mod tests;
 
 use crate::{
     columns::{Alignment, Apply, MinIndices, Position, Shim},
-    writer::{Branch, DiagramWriter, MergeBranch, WriteBranch},
+    writer::{Branch, DiagramWrite, MergeBranch},
 };
 
 /// A special merge command.
@@ -23,26 +21,22 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Merge;
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Merge {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for Merge {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
         match minimal.pos() {
             Position::Isolated => Align.apply(state, align, span, minimal),
-            Position::AfterLast | Position::BeforeFirst => fork_impl_suppressed::<false, _, _, _>(
-                state,
-                align,
-                span,
-                minimal,
-                Branch::Continue,
-            ),
-            Position::First => fork_impl_generic::<false, true, _, _, _>(
+            Position::AfterLast | Position::BeforeFirst => {
+                fork_impl_suppressed::<false, _, _>(state, align, span, minimal, Branch::Continue)
+            }
+            Position::First => fork_impl_generic::<false, true, _, _>(
                 state,
                 align,
                 span,
@@ -52,18 +46,15 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
                 Branch::ShiftForkRightMergeStart,
             ),
             Position::Inner => {
-                state.queue_fill(align.c - align.l);
-                state.write_merge_branch(MergeBranch::Join)?;
+                state.write_merge_branch(align.l, align.c - align.l, MergeBranch::Join)?;
                 Ok((0, true))
             }
             Position::InnerSkipped => {
-                state.queue_fill(align.c - align.l);
-                state.write_merge_branch(MergeBranch::Cross)?;
+                state.write_merge_branch(align.l, align.c - align.l, MergeBranch::Cross)?;
                 Ok((1, true))
             }
             Position::Last => {
-                state.queue_fill(align.c - align.l);
-                state.write_merge_branch(MergeBranch::End)?;
+                state.write_merge_branch(align.l, align.c - align.l, MergeBranch::End)?;
                 Ok((0, true))
             }
         }
@@ -75,29 +66,28 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Me
 #[derive(Debug, Clone, Copy)]
 pub struct DelayedMarker(pub char);
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for DelayedMarker {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for DelayedMarker {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl_suppressed::<false, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
+        fork_impl_suppressed::<false, _, _>(state, align, span, minimal, Branch::Marker(self.0))
     }
 }
 
-impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for DelayedMarker {
+impl<'a, W: DiagramWrite> Shim<&'a mut W> for DelayedMarker {
     fn insert(
         self,
-        writer: &'a mut DiagramWriter<W, B>,
+        writer: &'a mut W,
         gap: Alignment,
     ) -> Result<(usize, usize, bool), Self::Error> {
         let leading = gap.c - gap.l;
-        writer.queue_fill(leading);
-        writer.write_branch(Branch::Marker(self.0))?;
+        writer.write_branch(gap.l, leading, Branch::Marker(self.0))?;
         Ok((leading + 1, 0, true))
     }
 }
@@ -107,29 +97,28 @@ impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Del
 #[derive(Debug, Clone, Copy)]
 pub struct Marker(pub char);
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Marker {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for Marker {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<true, true, _, _, _>(state, align, span, minimal, Branch::Marker(self.0))
+        fork_impl::<true, true, _, _>(state, align, span, minimal, Branch::Marker(self.0))
     }
 }
 
-impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Marker {
+impl<'a, W: DiagramWrite> Shim<&'a mut W> for Marker {
     fn insert(
         self,
-        writer: &'a mut DiagramWriter<W, B>,
+        writer: &'a mut W,
         gap: Alignment,
     ) -> Result<(usize, usize, bool), Self::Error> {
         let leading = gap.c - gap.l;
-        writer.queue_fill(leading);
-        writer.write_branch(Branch::Marker(self.0))?;
+        writer.write_branch(gap.l, leading, Branch::Marker(self.0))?;
         Ok((leading + 1, 0, true))
     }
 }
@@ -138,17 +127,17 @@ impl<'a, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for Mar
 #[derive(Debug, Clone, Copy)]
 pub struct Skip;
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Skip {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for Skip {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl_suppressed::<true, _, _, _>(state, align, span, minimal, Branch::Marker(' '))
+        fork_impl_suppressed::<true, _, _>(state, align, span, minimal, Branch::Marker(' '))
     }
 }
 
@@ -156,27 +145,27 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Sk
 /// internal column.
 pub struct DelayedFork<'c>(pub &'c mut usize);
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for DelayedFork<'c> {
-    type Error = io::Error;
+impl<'a, 'c, W: DiagramWrite> Apply<&'a mut W> for DelayedFork<'c> {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
         let ret =
-            fork_impl_suppressed::<false, _, _, _>(state, align, span, minimal, Branch::Continue)?;
+            fork_impl_suppressed::<false, _, _>(state, align, span, minimal, Branch::Continue)?;
         *self.0 = span.last().unwrap().1;
         Ok(ret)
     }
 }
 
-impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for DelayedFork<'c> {
+impl<'a, 'c, W: DiagramWrite> Shim<&'a mut W> for DelayedFork<'c> {
     fn insert(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
     ) -> Result<(usize, usize, bool), Self::Error> {
         // FIXME: this is hacky since it repeats existing manual width computations
@@ -187,7 +176,7 @@ impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for
         let mut span = [((), *self.0)];
 
         // write the column, modifying the span
-        fork_impl::<false, true, _, _, _>(state, align, &mut span, [], Branch::Continue)?;
+        fork_impl::<false, true, _, _>(state, align, &mut span, [], Branch::Continue)?;
         // the new column value is exactly this column
         let new_col = span[0].1;
 
@@ -205,17 +194,17 @@ impl<'a, 'c, W: io::Write, B: WriteBranch> Shim<&'a mut DiagramWriter<W, B>> for
 #[derive(Debug, Clone, Copy)]
 pub struct Align;
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Align {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for Align {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<false, true, _, _, _>(state, align, span, minimal, Branch::Continue)
+        fork_impl::<false, true, _, _>(state, align, span, minimal, Branch::Continue)
     }
 }
 
@@ -223,42 +212,42 @@ impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Al
 #[derive(Debug, Clone, Copy)]
 pub struct Fork;
 
-impl<'a, W: io::Write, B: WriteBranch> Apply<&'a mut DiagramWriter<W, B>> for Fork {
-    type Error = io::Error;
+impl<'a, W: DiagramWrite> Apply<&'a mut W> for Fork {
+    type Error = W::Error;
 
     fn apply<V>(
         self,
-        state: &'a mut DiagramWriter<W, B>,
+        state: &'a mut W,
         align: Alignment,
         span: &mut [(V, usize)],
         minimal: MinIndices<'_>,
     ) -> Result<(usize, bool), Self::Error> {
-        fork_impl::<false, false, _, _, _>(state, align, span, minimal, Branch::Continue)
+        fork_impl::<false, false, _, _>(state, align, span, minimal, Branch::Continue)
     }
 }
 
 /// Write a row, ignoring the minimal indices but still reporting if the column is isolated or not.
 #[inline]
-fn fork_impl_suppressed<const FIXED: bool, V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
+fn fork_impl_suppressed<const FIXED: bool, V, W: DiagramWrite>(
+    writer: &mut W,
     col: Alignment,
     span: &mut [(V, usize)],
     minimal: MinIndices<'_>,
     continuation: Branch,
-) -> io::Result<(usize, bool)> {
-    fork_impl::<FIXED, true, _, _, _>(writer, col, span, [], continuation)?;
+) -> Result<(usize, bool), W::Error> {
+    fork_impl::<FIXED, true, _, _>(writer, col, span, [], continuation)?;
     Ok((1, minimal.is_empty() || span.len() == 1))
 }
 
 #[inline]
-fn fork_impl<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
+fn fork_impl<const FIXED: bool, const NOBRANCH: bool, V, W: DiagramWrite>(
+    writer: &mut W,
     col: Alignment,
     span: &mut [(V, usize)],
     minimal: impl IntoIterator<Item = usize>,
     continuation: Branch,
-) -> io::Result<(usize, bool)> {
-    fork_impl_generic::<FIXED, NOBRANCH, _, _, _>(
+) -> Result<(usize, bool), W::Error> {
+    fork_impl_generic::<FIXED, NOBRANCH, _, _>(
         writer,
         col,
         span,
@@ -287,20 +276,21 @@ fn fork_impl<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B: WriteB
 /// indices. In order to also suppress alignment computations, explicitly pass an empty list of
 /// minimal indices.
 #[inline]
-fn fork_impl_generic<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B: WriteBranch>(
-    writer: &mut DiagramWriter<W, B>,
+fn fork_impl_generic<const FIXED: bool, const NOBRANCH: bool, V, W: DiagramWrite>(
+    writer: &mut W,
     col: Alignment,
     span: &mut [(V, usize)],
     minimal: impl IntoIterator<Item = usize>,
     continuation: Branch,
     left_branch: impl FnOnce(usize, usize) -> Branch,
     right_branch: impl FnOnce(usize, usize) -> Branch,
-) -> io::Result<(usize, bool)> {
+) -> Result<(usize, bool), W::Error> {
     let target = if FIXED { col.c } else { col.clamp() };
+    let leading = target.min(col.c) - col.l;
 
     // write preceding whitespace if we don't make it all
     // the way to the beginning
-    writer.queue_fill(target.min(col.c) - col.l);
+    // writer.write_fill(target.min(col.c) - col.l)?;
 
     // The number of required branches we need before we can start branching
     let threshold = col.l.saturating_sub(col.align);
@@ -377,7 +367,7 @@ fn fork_impl_generic<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B
                 *c += increment;
             }
         }
-        writer.write_branch(right_branch(increment - 1, forks))?;
+        writer.write_branch(col.l, leading, right_branch(increment - 1, forks))?;
     } else {
         let decrement = col.c - target;
 
@@ -401,7 +391,7 @@ fn fork_impl_generic<const FIXED: bool, const NOBRANCH: bool, V, W: io::Write, B
             left_branch(decrement - forks - 1, forks)
         };
 
-        writer.write_branch(br)?;
+        writer.write_branch(col.l, leading, br)?;
     };
 
     Ok((required_forks + 1, required_forks == forks))

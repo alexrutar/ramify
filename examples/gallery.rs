@@ -6,8 +6,7 @@ use std::{
 };
 
 use argh::FromArgs;
-use ramify::writer::{DoubledLines, RoundedCorners, RoundedCornersWide, SharpCorners, WriteBranch};
-use ramify::{Config, Generator, Ramify, branch_writer};
+use ramify::{Config, Generator, Ramify, writer::Style};
 
 /// A basic recursive DAG.
 #[derive(Clone)]
@@ -75,8 +74,7 @@ impl Ramify<Rc<Vtx>> for AnnotatingRamifier {
 /// Command-line arguments for the styles example.
 #[derive(FromArgs)]
 struct Args {
-    /// style to use: RoundedCorners, RoundedCornersWide, SharpCorners,
-    /// SharpCornersWide, DoubledLines, or Inverted
+    /// style to use: RoundedCorners, SharpCorners, or DoubledLines
     #[argh(option, short = 's', default = "String::from(\"RoundedCorners\")")]
     style: String,
 
@@ -84,25 +82,33 @@ struct Args {
     #[argh(option, short = 'g', default = "String::from(\"complex\")")]
     graph: String,
 
-    /// extra padding (in rows) between vertices
+    /// extra rows between vertices
     #[argh(option, default = "0")]
     row_padding: usize,
 
-    /// margin (in characters) between annotation and branch diagram
+    /// margin between annotation and branch diagram
     #[argh(option, default = "1")]
     annotation_margin: usize,
 
-    /// write the annotation before the vertex
-    #[argh(switch)]
-    annotation_before_vertex: bool,
-
-    /// minimum width of the diagram (in gutters)
+    /// the gap between columns
     #[argh(option, default = "0")]
-    min_diagram_width: usize,
+    gutter_width: usize,
+
+    /// draw the root at the bottom
+    #[argh(switch)]
+    invert: bool,
+
+    /// minimum width of the diagram
+    #[argh(option, default = "0")]
+    annotation_justification: usize,
 
     /// avoid all internal whitespace
     #[argh(switch)]
     minimize_width: bool,
+
+    /// draw merge lines on top
+    #[argh(switch)]
+    merge_over: bool,
 }
 
 /// Returns a simple tree with basic branching.
@@ -202,32 +208,24 @@ fn graph_merge_annotations() -> Rc<Vtx> {
     Vtx::inner('0', vec![v4, v1])
 }
 
-// Define the custom inverted style
-branch_writer! {
-    struct InvertedStyle {
-        charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
-        gutter_width: 0,
-        inverted: true,
-    }
-}
-
 /// Renders the tree with the specified style and configuration.
-fn render<B: WriteBranch>(tree: Rc<Vtx>, config: Config<()>) -> io::Result<()> {
-    let config = config.reset_style::<B>();
-    let mut generator = Generator::init(tree, AnnotatingRamifier, config);
-    let mut writer = io::stdout().lock();
+fn render(tree: Rc<Vtx>, config: Config, style: Style, invert: bool) -> io::Result<()> {
+    let mut generator = Generator::with_config(tree, AnnotatingRamifier, config);
 
-    if B::INVERTED {
-        // for inverted styles, buffer the entire output and reverse it
-        let mut diag = String::new();
-        while generator.write_vertex_str(&mut diag) {}
+    if invert {
+        // buffer the entire output and reverse it
+        let diag = generator.branch_diagram(style.invert());
 
+        let mut writer = io::stdout().lock();
         for line in diag.lines().rev() {
             writeln!(&mut writer, "{line}")?;
         }
     } else {
+        let mut writer = style.io_writer(io::stdout().lock());
         // for normal styles, write line-by-line
-        while generator.write_vertex(&mut writer)? {}
+        while !generator.is_empty() {
+            generator = generator.write_vertex(&mut writer)?
+        }
     }
 
     Ok(())
@@ -247,35 +245,33 @@ fn main() -> io::Result<()> {
         "merge" => graph_merge(),
         _ => {
             eprintln!("Unknown graph: {}", args.graph);
-            eprintln!("Available graphs: simple, large, complex, wide, annotations, merge, merge-annotations");
+            eprintln!(
+                "Available graphs: simple, large, complex, wide, annotations, merge, merge-annotations"
+            );
             std::process::exit(1);
         }
     };
 
     // Create configuration from command-line arguments
-    let mut config = Config::without_style();
-    config.row_padding = args.row_padding;
-    config.annotation_margin = args.annotation_margin;
-    config.min_diagram_width = args.min_diagram_width;
-    config.minimize_width = args.minimize_width;
-    config.annotation_before_vertex = args.annotation_before_vertex;
+    let config = Config::new()
+        .row_padding(args.row_padding)
+        .minimize_width(args.minimize_width)
+        .inverted_annotations(args.invert);
 
-    // Select the style and render
-    // We need to use a match here because Rust requires concrete types at compile time
-    match args.style.to_lowercase().as_str() {
-        "rounded_corners" | "roundedcorners" => render::<RoundedCorners>(tree, config),
-        "rounded_corners_wide" | "roundedcornerswide" => render::<RoundedCornersWide>(tree, config),
-        "sharp_corners" | "sharpcorners" => render::<SharpCorners>(tree, config),
-        "sharp_corners_wide" | "sharpcornerswide" => {
-            render::<ramify::writer::SharpCornersWide>(tree, config)
-        }
-        "doubled_lines" | "doubledlines" => render::<DoubledLines>(tree, config),
-        "inverted" => render::<InvertedStyle>(tree, config),
+    let style = match args.style.to_lowercase().as_str() {
+        "rounded_corners" | "roundedcorners" => Style::rounded_corners(),
+        "sharp_corners" | "sharpcorners" => Style::sharp_corners(),
+        "doubled_lines" | "doubledlines" => Style::doubled_lines(),
         _ => {
             eprintln!("Unknown style: {}", args.style);
-            eprintln!("Available styles: RoundedCorners, RoundedCornersWide, SharpCorners,");
-            eprintln!("                  SharpCornersWide, DoubledLines, Inverted");
+            eprintln!("Available styles: RoundedCorners, SharpCorners, DoubledLines");
             std::process::exit(1);
         }
     }
+    .annotation_margin(args.annotation_margin)
+    .gutter_width(args.gutter_width)
+    .annotation_justification(args.annotation_justification)
+    .merge_over(args.merge_over);
+
+    render(tree, config, style, args.invert)
 }

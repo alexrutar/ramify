@@ -1,34 +1,16 @@
-use super::*;
+mod vtx;
 
-fn assert_diag(root: Vtx<char>, margin_below: usize, expected: &str) {
-    struct Ramifier;
+use vtx::*;
 
-    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
-            vtx.children.iter()
-        }
-
-        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
-            vtx.data
-        }
-
-        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
-            buf.push_str(">0\n>1\n>2");
-        }
-    }
-
-    let mut config = Config::<crate::writer::RoundedCorners>::new();
-    config.row_padding = margin_below;
-    assert_diag_impl(root, expected, Ramifier, config)
+fn assert_diag_annot(root: Rc<Vtx>, margin_below: usize, expected: &str) {
+    let config = Config::new().row_padding(margin_below);
+    let style = Style::rounded_corners();
+    assert_diag(root, ">0\n>1\n>2", config, style, expected);
 }
 
 #[test]
 fn multiline_annotations() {
-    assert_diag(
+    assert_diag_annot(
         ex3(),
         0,
         "\
@@ -65,7 +47,7 @@ fn multiline_annotations() {
 
 #[test]
 fn inner_path_multiline() {
-    assert_diag(
+    assert_diag_annot(
         ex4(),
         0,
         "\
@@ -103,7 +85,7 @@ fn inner_path_multiline() {
 
 #[test]
 fn inner_path_multiline_padded() {
-    assert_diag(
+    assert_diag_annot(
         ex4(),
         1,
         "\
@@ -270,35 +252,28 @@ fn small_multi() {
             let v3 = Vtx::leaf(c3);
             Vtx::inner('0', vec![v1, v2, v3])
         };
-        assert_diag(root, 1, diag);
+        assert_diag_annot(root, 1, diag);
     }
 }
 
 #[test]
 fn final_annotation_alignment() {
-    struct Ramifier;
-
-    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
-            vtx.children.iter()
-        }
-
-        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
-            vtx.data
-        }
-
-        fn annotate(&self, vtx: &&'t Vtx<char>, buf: &mut String) {
-            if vtx.data == '8' {
-                buf.push_str(">0\n>1\n>2");
-            }
-        }
-    }
-    assert_diag_impl(
-        ex4(),
+    let root = {
+        let v8 = Vtx::leaf_annotated('8', ">0\n>1\n>2");
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::inner('3', vec![v8]);
+        let v2 = Vtx::leaf('2');
+        let v1 = Vtx::inner('1', vec![v7]);
+        Vtx::inner('0', vec![v5, v4, v6, v1, v2, v3])
+    };
+    assert_diag(
+        root,
+        "",
+        Config::new(),
+        Style::rounded_corners(),
         "\
 0
 ├┬╮
@@ -316,7 +291,5 @@ fn final_annotation_alignment() {
      >1
      >2
 ",
-        Ramifier,
-        Config::<RoundedCorners>::new(),
     );
 }

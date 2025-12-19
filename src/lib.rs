@@ -24,8 +24,8 @@
 //!
 //! - To describe your hierarchical data, implement [`Ramify`] or [`TryRamify`].
 //! - To generate the branch diagram itself, use the [`Generator`] struct.
-//! - To configure the diagram layout and appearance, use the [`Config`] struct or the
-//!   [`branch_writer!`] macro. Read more in the [`writer`] module.
+//! - To configure the diagram layout and appearance, use the [`Config`] struct or
+//!   [`Style`](writer::Style) configuration. Read more in the [`writer`] module.
 //!
 //! ## Usage examples
 //!
@@ -40,10 +40,7 @@ pub mod writer;
 
 use std::convert::Infallible;
 
-pub use self::{
-    layout::{Generator, WriteVertexError},
-    writer::Config,
-};
+pub use self::layout::{Config, Generator, State, SuspendedGenerator};
 
 /// A trait representing hierarchical data structures with efficient iteration of children.
 ///
@@ -159,8 +156,8 @@ pub trait Ramify<V> {
     /// margin.
     /// ```txt
     /// 0   An annotation occupying two lines
-    /// ╰╮  followed by one line of margin
-    /// ╭┼╮
+    /// ├┬╮ followed by one line of margin
+    /// │││
     /// │1│ An annotation with one line and no margin.
     /// 2╭╯
     ///  3  The annotation for vertex 2 is empty.
@@ -176,7 +173,6 @@ pub trait Ramify<V> {
     /// vertex.
     ///
     /// The default implementation always returns `false`, so vertices will never be merged.
-    /// Vertices which are merged will be passed to [`cleanup`](Ramify::cleanup).
     ///
     /// # Difference from [`sort_key`](Ramify::sort_key)
     ///
@@ -204,48 +200,22 @@ pub trait Ramify<V> {
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
     }
-
-    /// Clean up a merged vertex.
-    ///
-    /// If [`is_identical`](Ramify::is_identical) returns `true`, the `other` vertex will be removed from the
-    /// list of active vertices. When it is removed, it is passed to this method.
-    ///
-    /// The default implementation drops the vertex.
-    #[inline]
-    fn cleanup(&mut self, vtx: V) {
-        drop(vtx);
-    }
-}
-
-/// The error returned when a ramifier fails to determine the children associated with
-/// a vertex.
-///
-/// This struct is used as the error variant returned by [`TryRamify::try_ramify`]. See those
-/// docs for more detail.
-#[derive(Debug)]
-pub struct Failed<P, E = ()> {
-    /// A placeholder vertex for retry attempts.
-    pub placeholder: P,
-    /// The associated error.
-    pub err: E,
-}
-
-impl<P, E: Default> From<P> for Failed<P, E> {
-    fn from(placeholder: P) -> Self {
-        Self {
-            placeholder,
-            err: E::default(),
-        }
-    }
 }
 
 /// Try to iterate over the children of the vertex.
 ///
 /// This is a fallible version of [`Ramify`] where the call to [`Ramify::ramify`] might fail.
-/// This trait instead has a method [`TryRamify::try_ramify`], which can either return a list of
-/// children, or fail and return a replacement vertex.
+/// This trait instead has a method [`TryRamify::try_ramify`], which can either return an iterator over
+/// children or fail.
 ///
-/// The [`Ramify`] docs contain much more detail. Here, we only document the differences.
+/// This trait is used by a [generator](Generator) to manage control flow around errors. When driven by a
+/// generator, if an error occurs, no writes are performed and the generator
+/// is put into a [suspended state](SuspendedGenerator).
+///
+/// If you wish to represent the errors directly inside the tree, you should implement [`Ramify`]
+/// with a vertex type like `Result<V, E>`.
+///
+/// The [`Ramify`] docs contain more detail. Here, we only document the differences.
 ///
 /// ### Blanket implementation
 ///
@@ -256,47 +226,12 @@ pub trait TryRamify<V> {
     /// An error which may occur while trying to retrieve the children.
     type Error;
 
-    /// A placeholder passed to the next render attempt.
-    type Placeholder;
-
-    /// Try to iterate over the children of the vertex.
+    /// Try to iterate over the children of the vertex or return an error.
     ///
-    /// If it is not possible to determine the children, a placeholder must be returned in the `Err(_)`
-    /// variant. The placeholder will be passed to [`retry_ramify`](TryRamify::retry_ramify) for subsequent
-    /// attempts.
-    ///
-    /// The marker character and the annotation of the previous vertex are used, regardless
-    /// of the returned replacement vertex. The replacement vertex is only used to pass
-    /// additional state onwards to the next call of this method.
-    ///
-    /// # Common implementation patterns
-    ///
-    /// Here are a few common patterns for which this method is designed.
-    ///
-    /// 1. *Permanent failure*: This method can be used to abort on an unrecoverable failure. Since the error is
-    ///    propagated to the caller, the caller can use this to abort iteration permanently. In this
-    ///    case, the placeholder in the `Err(_)` variant would just be the unit enum since it is
-    ///    unused anyway.
-    /// 2. *Temporary failure*: If the failure is temporary, the original vertex can be returned in
-    ///    the `Err(_)` variant and the caller can wait (or do something else) before attempting
-    ///    to write a vertex row again. In this case, `retry` is just a call to `try_ramify`.
-    /// 3. *Local failure*: If only this specific vertex cannot be written (whereas it is
-    ///    reasonable for iteration to continue with the other vertices), this method should succeed
-    ///    but return a single special vertex which can be used later to report the failure inside
-    ///    the tree itself. In this case, one might implement [`Ramify`] instead.
-    fn try_ramify(
-        &mut self,
-        vtx: V,
-    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>>;
-
-    /// Try to iterate over the children of a vertex when the previous attempt failed.
-    ///
-    /// Iteration may fail multiple times, in which case the placeholder contained in the
-    /// [`Failed`] struct from the previous attempt will be passed to the subsequent attempt.
-    fn retry_ramify(
-        &mut self,
-        prev: Self::Placeholder,
-    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>>;
+    /// If an error occurs while this ramifier is driven by a generator, the error is returned in the [`State::Suspended`] variant along with the suspended generator. In order to
+    /// [resume](SuspendedGenerator::resume) iteration after an error, the error type
+    /// should contain enough context to recover.
+    fn try_ramify(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, Self::Error>;
 
     /// Get the sort key associated with a vertex.
     fn sort_key(&self, vtx: &V) -> impl Ord;
@@ -314,32 +249,13 @@ pub trait TryRamify<V> {
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
     }
-
-    /// Clean up a merged vertex.
-    #[inline]
-    fn cleanup(&mut self, vtx: V) {
-        drop(vtx);
-    }
 }
 
 impl<R: Ramify<V>, V> TryRamify<V> for R {
     type Error = Infallible;
 
-    type Placeholder = Infallible;
-
-    fn try_ramify(
-        &mut self,
-        vtx: V,
-    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>> {
+    fn try_ramify(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, Self::Error> {
         Ok(<Self as Ramify<V>>::ramify(self, vtx))
-    }
-
-    fn retry_ramify(
-        &mut self,
-        _: Self::Placeholder,
-    ) -> Result<impl IntoIterator<Item = V>, Failed<Self::Placeholder, Self::Error>> {
-        // this is unreachable since `Self::Retry` is uninhabited
-        Ok(std::iter::empty())
     }
 
     fn sort_key(&self, vtx: &V) -> impl Ord {
@@ -356,9 +272,5 @@ impl<R: Ramify<V>, V> TryRamify<V> for R {
 
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         <Self as Ramify<V>>::is_identical(self, vtx, other)
-    }
-
-    fn cleanup(&mut self, vtx: V) {
-        <Self as Ramify<V>>::cleanup(self, vtx)
     }
 }
