@@ -32,7 +32,13 @@ name = "merge"
 name = "inverted"
 
 [[example]]
-name = "fallible"
+name = "abort"
+
+[[example]]
+name = "subset"
+
+[[example]]
+name = "tree_error"
 
 [[example]]
 name = "gallery"

@@ -1,72 +1,7 @@
-use crate::{Config, Generator, Ramify};
+mod vtx;
+use vtx::*;
+
 use std::rc::Rc;
-
-#[derive(Clone)]
-struct Vtx<T> {
-    data: T,
-    children: Vec<Rc<Vtx<T>>>,
-}
-
-impl<T> Vtx<T> {
-    fn inner(data: T, children: Vec<Rc<Vtx<T>>>) -> Rc<Self> {
-        Rc::new(Self { data, children })
-    }
-
-    fn leaf(data: T) -> Rc<Self> {
-        Rc::new(Self {
-            data,
-            children: Vec::new(),
-        })
-    }
-}
-fn assert_diag(root: Rc<Vtx<char>>, annotation: &'static str, margin_below: usize, expected: &str) {
-    let mut config = Config::with_rounded_corners();
-    config.row_padding = margin_below;
-    assert_diag_config(root, annotation, config, expected)
-}
-
-fn assert_diag_config<B: crate::writer::WriteBranch>(
-    root: Rc<Vtx<char>>,
-    annotation: &'static str,
-    config: Config<B>,
-    expected: &str,
-) {
-    struct Ramifier(&'static str);
-
-    impl Ramify<Rc<Vtx<char>>> for Ramifier {
-        fn ramify(&mut self, vtx: Rc<Vtx<char>>) -> impl IntoIterator<Item = Rc<Vtx<char>>> {
-            Rc::unwrap_or_clone(vtx).children
-        }
-
-        fn sort_key(&self, vtx: &Rc<Vtx<char>>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &Rc<Vtx<char>>) -> char {
-            vtx.data
-        }
-
-        fn annotate(&self, _: &Rc<Vtx<char>>, buf: &mut String) {
-            buf.push_str(self.0);
-        }
-
-        fn is_identical(&self, vtx: &Rc<Vtx<char>>, other: &Rc<Vtx<char>>) -> bool {
-            Rc::ptr_eq(vtx, other)
-        }
-    }
-
-    println!("\nExpecting tree:\n{expected}");
-
-    let mut writer: Vec<u8> = Vec::new();
-    let mut cols = Generator::init(root, Ramifier(annotation), config);
-    while cols.write_vertex(&mut writer).unwrap() {}
-
-    let received = std::str::from_utf8(&writer).unwrap();
-
-    println!("Got tree:\n{received}");
-
-    assert_eq!(expected, received);
-}
 
 #[test]
 fn basic() {
@@ -82,7 +17,8 @@ fn basic() {
     assert_diag(
         root,
         "",
-        0,
+        Config::new(),
+        Style::rounded_corners(),
         "\
 0
 ├╮
@@ -112,7 +48,8 @@ fn large() {
     assert_diag(
         root,
         "",
-        0,
+        Config::new(),
+        Style::rounded_corners(),
         "\
 0
 ├╮
@@ -145,14 +82,11 @@ fn complex() {
         Vtx::inner('0', vec![v4, v1])
     };
 
-    let mut config = Config::with_rounded_corners_wide();
-    config.row_padding = 1;
-    config.minimize_width = true;
-
-    assert_diag_config(
+    assert_diag(
         Rc::clone(&root),
         "",
-        config,
+        Config::new().row_padding(1).minimize_width(true),
+        Style::rounded_corners().gutter_width(1),
         "\
 0
 ├─╮
@@ -186,20 +120,14 @@ a
 ",
     );
 
-    crate::branch_writer! {
-        #[derive(Clone)]
-        pub struct MyStyle {
-            charset: ["│", "─", "╯", "╰",  "╮", "╭", "┤", "├", "┴", "┬", "┼"],
-            gutter_width: 1,
-            inverted: true,
-        }
-    }
-
-    let config = Config::<MyStyle>::new();
-    assert_diag_config(
+    // let mut config = Config::new();
+    // config.reverse_annotation_lines = true;
+    // config.annotation_before_vertex = true;
+    assert_diag(
         Rc::clone(&root),
         "",
-        config,
+        Config::new().inverted_annotations(true),
+        Style::rounded_corners().invert().gutter_width(1),
         "\
 0
 ├─╯
@@ -225,11 +153,11 @@ a
 ",
     );
 
-    let config = Config::<MyStyle>::new();
-    assert_diag_config(
+    assert_diag(
         root,
         "#\n#",
-        config,
+        Config::new().inverted_annotations(true),
+        Style::rounded_corners().invert().gutter_width(1),
         "  #
 0 #
 ├─╯

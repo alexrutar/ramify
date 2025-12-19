@@ -2,12 +2,13 @@ use std::str::from_utf8;
 
 use crate::{
     columns::Alignment,
-    layout::{
-        ops::{Apply, Fork},
-        tests::trs,
-    },
-    writer::{DiagramWriter, RoundedCorners},
+    layout::ops::{Apply, Fork},
+    writer::Style,
 };
+
+pub fn trs(input: &[usize]) -> Vec<((), usize)> {
+    input.iter().map(|e| ((), *e)).collect()
+}
 
 // A convenience trait to make it easier to write tests.
 trait Bounds {
@@ -67,7 +68,7 @@ fn assert_fork(
         align: bounds.align(),
     };
 
-    let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);
+    let mut writer = Style::rounded_corners().io_writer(&mut target);
 
     let (x, y) = match minimal.split_first() {
         Some((fst, rest)) => (Some(*fst), rest),

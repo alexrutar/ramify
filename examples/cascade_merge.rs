@@ -1,7 +1,7 @@
 use std::io;
 
 use arrayvec::ArrayVec;
-use ramify::{Generator, Ramify};
+use ramify::{Generator, Ramify, writer::Style};
 use rand::{Rng, rngs::ThreadRng, seq::IndexedRandom};
 use rand_distr::Geometric;
 
@@ -78,7 +78,7 @@ impl Ramify<u64> for RandomCascade {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut generator = Generator::with_rounded_corners(
+    let mut generator = Generator::new(
         0u64,
         RandomCascade {
             rng: rand::rng(),
@@ -88,8 +88,9 @@ fn main() -> std::io::Result<()> {
         },
     );
     // uncomment these lines to try out some of configuration options
-    // generator.config_mut().row_padding = 1;
-    // generator.config_mut().minimize_width = true;
-    while generator.write_vertex(io::stdout())? {}
+    let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
+    while !generator.is_empty() {
+        generator = generator.write_vertex(&mut writer)?;
+    }
     Ok(())
 }

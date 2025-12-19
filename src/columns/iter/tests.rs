@@ -1,8 +1,8 @@
 use std::{iter::repeat, str::from_utf8};
 
 use crate::{
-    layout::{ops::*, tests::trs},
-    writer::{DiagramWriter, RoundedCorners},
+    layout::ops::{tests::trs, *},
+    writer::Style,
 };
 
 trait Minimal {
@@ -117,7 +117,7 @@ fn assert_cols(
     let mut cols_mut = super::ColumnsMut::new(&mut active, minimal.convert());
 
     let mut target: Vec<u8> = Vec::new();
-    let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);
+    let mut writer = Style::rounded_corners().io_writer(&mut target);
 
     for cmd in commands {
         let ct = match cmd {
@@ -322,7 +322,7 @@ fn shimmed() {
             super::ColumnsMut::new(&mut active, minimal.convert()).with_shim((col, Marker(ch)));
 
         let mut target: Vec<u8> = Vec::new();
-        let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);
+        let mut writer = Style::rounded_corners().io_writer(&mut target);
 
         while cols_mut.apply(Fork, &mut writer).unwrap().is_some() {}
 
@@ -385,7 +385,7 @@ fn merge() {
         let mut cols_mut = super::ColumnsMut::new(&mut active, minimal.convert());
 
         let mut target: Vec<u8> = Vec::new();
-        let mut writer = DiagramWriter::<_, RoundedCorners>::new(&mut target);
+        let mut writer = Style::rounded_corners().io_writer(&mut target);
 
         while cols_mut.apply(Merge, &mut writer).unwrap().is_some() {}
 

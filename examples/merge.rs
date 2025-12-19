@@ -2,7 +2,7 @@
 
 use std::{io, rc::Rc};
 
-use ramify::{Config, Generator, Ramify};
+use ramify::{Generator, Ramify, writer::Style};
 
 /// A directed acyclic graph.
 #[derive(Clone)]
@@ -68,12 +68,13 @@ fn main() -> io::Result<()> {
         Vtx::inner('0', vec![v4, v1])
     };
 
-    let config = Config::with_rounded_corners();
-    let mut generator = Generator::init(tree, AnnotatingRamifier, config);
+    let mut generator = Generator::new(tree, AnnotatingRamifier);
 
     // repeatedly write to stdout until the tree is empty
-    let mut writer = io::stdout();
-    while generator.write_vertex(&mut writer)? {}
+    let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
+    while !generator.is_empty() {
+        generator = generator.write_vertex(&mut writer)?;
+    }
 
     Ok(())
 }

@@ -1,57 +1,13 @@
-use crate::writer::{RoundedCorners, RoundedCornersWide, SharpCorners, SharpCornersWide};
-
-use super::*;
-
-fn assert_diag<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expected: &str) {
-    struct Ramifier;
-
-    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
-            vtx.children.iter()
-        }
-
-        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
-            vtx.data
-        }
-    }
-
-    assert_diag_impl(root, expected, Ramifier, config)
-}
-
-fn assert_diag_annot<B: WriteBranch>(root: Vtx<char>, config: Config<B>, expected: &str) {
-    struct AnnotatingRamifier;
-
-    impl<'t> Ramify<&'t Vtx<char>> for AnnotatingRamifier {
-        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
-            vtx.children.iter()
-        }
-
-        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
-            vtx.data
-        }
-
-        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
-            buf.push('#')
-        }
-    }
-
-    assert_diag_impl(root, expected, AnnotatingRamifier, config)
-}
+pub mod vtx;
+use vtx::*;
 
 #[test]
 fn annotation_style_rounded() {
-    let config = Config::<RoundedCorners>::new();
     assert_diag(
         ex2(),
-        config,
+        "",
+        Config::new(),
+        Style::rounded_corners(),
         "\
 0
 ├┬╮
@@ -71,10 +27,11 @@ fn annotation_style_rounded() {
 
 #[test]
 fn annotation_style_sharp() {
-    let config = Config::<SharpCorners>::new();
     assert_diag(
         ex2(),
-        config,
+        "",
+        Config::new(),
+        Style::sharp_corners(),
         "\
 0
 ├┬┐
@@ -94,10 +51,11 @@ fn annotation_style_sharp() {
 
 #[test]
 fn annotation_style_rounded_wide() {
-    let config = Config::<RoundedCornersWide>::new();
     assert_diag(
         ex2(),
-        config,
+        "",
+        Config::new(),
+        Style::rounded_corners().gutter_width(1),
         "\
 0
 ├─┬─╮
@@ -117,10 +75,11 @@ fn annotation_style_rounded_wide() {
 
 #[test]
 fn annotation_style_sharp_wide() {
-    let config = Config::<SharpCornersWide>::new();
-    assert_diag_annot(
+    assert_diag(
         ex2(),
-        config,
+        "#",
+        Config::new(),
+        Style::sharp_corners().gutter_width(1),
         "\
 0     #
 ├─┬─┐
@@ -140,9 +99,11 @@ fn annotation_style_sharp_wide() {
 
 #[test]
 fn annotation_reported_line_width() {
-    assert_diag_annot(
+    assert_diag(
         ex1(),
-        Config::<RoundedCorners>::new(),
+        "#",
+        Config::new(),
+        Style::rounded_corners(),
         "\
 0   #
 ├┬╮
@@ -170,10 +131,11 @@ c╭╯ #
 ",
     );
 
-    let config = Config::<RoundedCornersWide>::new();
-    assert_diag_annot(
+    assert_diag(
         ex1(),
-        config,
+        "#",
+        Config::new(),
+        Style::rounded_corners().gutter_width(1),
         "\
 0     #
 ├─┬─╮
@@ -204,11 +166,11 @@ c ╭─╯ #
 
 #[test]
 fn min_diag_width() {
-    let mut config = Config::<RoundedCorners>::new();
-    config.min_diagram_width = 10;
-    assert_diag_annot(
+    assert_diag(
         ex2(),
-        config,
+        "#",
+        Config::new(),
+        Style::rounded_corners().annotation_justification(11),
         "\
 0          #
 ├┬╮
@@ -228,11 +190,11 @@ fn min_diag_width() {
 
 #[test]
 fn no_inner_ws() {
-    let mut config = Config::<RoundedCorners>::new();
-    config.minimize_width = true;
-    assert_diag_annot(
+    assert_diag(
         ex3(),
-        config,
+        "#",
+        Config::new().minimize_width(true),
+        Style::rounded_corners(),
         "\
 0   #
 ├┬╮

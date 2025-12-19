@@ -1,32 +1,8 @@
-use super::*;
+mod vtx;
+use vtx::*;
 
-fn assert_diag(root: Vtx<char>, expected: &str) {
-    struct Ramifier;
-
-    impl<'t> Ramify<&'t Vtx<char>> for Ramifier {
-        fn ramify(&mut self, vtx: &'t Vtx<char>) -> impl IntoIterator<Item = &'t Vtx<char>> {
-            vtx.children.iter()
-        }
-
-        fn sort_key(&self, vtx: &&'t Vtx<char>) -> impl Ord {
-            vtx.data
-        }
-
-        fn marker(&self, vtx: &&'t Vtx<char>) -> char {
-            vtx.data
-        }
-
-        fn annotate(&self, _: &&'t Vtx<char>, buf: &mut String) {
-            buf.push('#')
-        }
-    }
-
-    assert_diag_impl(
-        root,
-        expected,
-        Ramifier,
-        Config::<crate::writer::RoundedCorners>::new(),
-    )
+fn assert_diag(root: Rc<Vtx>, expected: &str) {
+    vtx::assert_diag(root, "#", Config::new(), Style::rounded_corners(), expected)
 }
 
 #[test]
