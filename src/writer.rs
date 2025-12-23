@@ -78,7 +78,10 @@ pub trait DiagramWrite {
         merge: MergeBranch,
     ) -> Result<(), Self::Error>;
 
-    /// Write an annotation followed by a newline.
+    /// Prepare to write an annotation line.
+    ///
+    /// Implementors should use this to write alignment characters and other text which precedes
+    /// the annotation line itself.
     ///
     /// - `idx` is the index of the annotation line in the block of annotations
     /// - `written` is the number of columns that were written in this line
@@ -100,18 +103,39 @@ pub trait DiagramWrite {
     /// 2╭╯
     ///  3< Line 4
     /// ```
+    fn prepare_annotation(
+        &mut self,
+        idx: usize,
+        written: usize,
+        required: usize,
+    ) -> Result<(), Self::Error>;
+
+    /// Write the text of the annotation line.
+    fn write_annotation(&mut self, line: &str) -> Result<(), Self::Error>;
+
+    /// Write a newline.
+    ///
+    /// This is called to terminate branch diagram lines which do not contain annotations.
+    fn write_newline(&mut self) -> Result<(), Self::Error>;
+
+    /// Prepare and then write an annotation followed by a newline.
+    ///
+    /// The default implementation calls, in order,
+    ///
+    /// 1. [`prepare_annotation`](DiagramWrite::prepare_annotation),
+    /// 2. [`write_annotation`](DiagramWrite::write_annotation)
+    /// 3. [`write_newline`](DiagramWrite::write_newline).
     fn write_annotation_line(
         &mut self,
         idx: usize,
         written: usize,
         required: usize,
         line: &str,
-    ) -> Result<(), Self::Error>;
-
-    /// Write a newline.
-    ///
-    /// This is called to terminate branch diagram lines which do not contain annotations.
-    fn write_newline(&mut self) -> Result<(), Self::Error>;
+    ) -> Result<(), Self::Error> {
+        self.prepare_annotation(idx, written, required)?;
+        self.write_annotation(line)?;
+        self.write_newline()
+    }
 }
 
 /// A diagram writer which writes into an [`io::Write`] implementation.
@@ -129,6 +153,11 @@ impl<W> IOWriter<W> {
     /// implementation.
     pub fn new(style: Style, writer: W) -> Self {
         Self { style, writer }
+    }
+
+    /// Recover the style and the internal writer.
+    pub fn components(self) -> (Style, W) {
+        (self.style, self.writer)
     }
 }
 
@@ -167,7 +196,7 @@ impl<W: io::Write> WriteInner for IOWriter<W> {
     }
 
     #[inline]
-    fn finish(&mut self) -> io::Result<()> {
+    fn write_newline(&mut self) -> io::Result<()> {
         self.writer.write_all(b"\n")
     }
 }
@@ -196,15 +225,18 @@ impl<W: io::Write> DiagramWrite for IOWriter<W> {
     }
 
     #[inline]
-    fn write_annotation_line(
+    fn prepare_annotation(
         &mut self,
-        _index: usize,
+        _idx: usize,
         written: usize,
         required: usize,
-        line: &str,
     ) -> Result<(), Self::Error> {
-        debug_assert!(written <= required);
-        Shim(self).write_annotation(written, required, line)
+        Shim(self).prepare_annotation(written, required)
+    }
+
+    #[inline]
+    fn write_annotation(&mut self, line: &str) -> Result<(), Self::Error> {
+        Shim(self).write_annotation(line)
     }
 
     #[inline]
@@ -228,6 +260,11 @@ impl<W> FmtWriter<W> {
     /// Also see the [`Style::fmt_writer`] method.
     pub fn new(style: Style, writer: W) -> Self {
         Self { style, writer }
+    }
+
+    /// Recover the style and the internal writer.
+    pub fn components(self) -> (Style, W) {
+        (self.style, self.writer)
     }
 }
 
@@ -258,7 +295,7 @@ impl<W: fmt::Write> WriteInner for FmtWriter<W> {
     }
 
     #[inline]
-    fn finish(&mut self) -> fmt::Result {
+    fn write_newline(&mut self) -> fmt::Result {
         self.writer.write_char('\n')
     }
 }
@@ -287,14 +324,18 @@ impl<W: fmt::Write> DiagramWrite for FmtWriter<W> {
     }
 
     #[inline]
-    fn write_annotation_line(
+    fn prepare_annotation(
         &mut self,
-        _index: usize,
+        _idx: usize,
         written: usize,
         required: usize,
-        line: &str,
     ) -> Result<(), Self::Error> {
-        Shim(self).write_annotation(written, required, line)
+        Shim(self).prepare_annotation(written, required)
+    }
+
+    #[inline]
+    fn write_annotation(&mut self, line: &str) -> Result<(), Self::Error> {
+        Shim(self).write_annotation(line)
     }
 
     #[inline]
@@ -304,6 +345,9 @@ impl<W: fmt::Write> DiagramWrite for FmtWriter<W> {
 }
 
 /// Configuration for the appearance of the branch diagram.
+///
+/// This struct is used by the [`IOWriter`] and [`FmtWriter`] implementations of [`DiagramWrite`].
+/// For more fine-grained configuration, one should manually implement [`DiagramWrite`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Style {
     /// The set of characters to use in the diagram.
@@ -451,6 +495,26 @@ impl Style {
     /// a gap between the annotation and the branch diagram lines.
     ///
     /// The default value is `1`.
+    ///
+    /// ## Example
+    /// Here is an example going from annotation margin `0` to `2`.
+    /// ```txt
+    /// 0             0
+    /// ├┬╮           ├┬╮
+    /// │1├╮L0    →   │1├╮  L0
+    /// ││││L1        ││││  L1
+    /// ││2│          ││2│
+    /// │3│├╮L0   →   │3│├╮  L0
+    /// │╭╯││         │╭╯││
+    /// ││╭┤│         ││╭┤│
+    /// │││4│L0   →   │││4│  L0
+    /// │││╭╯L1       │││╭╯  L1
+    /// ││││ L2       ││││   L2
+    /// ││5│          ││5│
+    /// │6╭╯          │6╭╯
+    /// 7╭╯           7╭╯
+    ///  8             8
+    /// ```
     pub const fn annotation_margin(mut self, annotation_margin: usize) -> Self {
         self.annotation_margin = annotation_margin;
         self

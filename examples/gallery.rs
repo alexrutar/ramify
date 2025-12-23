@@ -78,9 +78,13 @@ struct Args {
     #[argh(option, short = 's', default = "String::from(\"RoundedCorners\")")]
     style: String,
 
-    /// graph to display: simple, complex, wide, annotations, or narrow
+    /// graph to display: simple, large, complex, wide, annotations, merge, or merge-annotations
     #[argh(option, short = 'g', default = "String::from(\"complex\")")]
     graph: String,
+
+    /// draw the root at the bottom
+    #[argh(switch, short = 'i')]
+    invert: bool,
 
     /// extra rows between vertices
     #[argh(option, default = "0")]
@@ -94,11 +98,7 @@ struct Args {
     #[argh(option, default = "0")]
     gutter_width: usize,
 
-    /// draw the root at the bottom
-    #[argh(switch)]
-    invert: bool,
-
-    /// minimum width of the diagram
+    /// minimum left justification of annotations
     #[argh(option, default = "0")]
     annotation_justification: usize,
 
@@ -106,106 +106,9 @@ struct Args {
     #[argh(switch)]
     minimize_width: bool,
 
-    /// draw merge lines on top
+    /// draw horizontal merge lines on top of vertical lines
     #[argh(switch)]
     merge_over: bool,
-}
-
-/// Returns a simple tree with basic branching.
-fn graph_simple() -> Rc<Vtx> {
-    let v3 = Vtx::leaf('3');
-    let v2 = Vtx::leaf('2');
-    let v1 = Vtx::leaf('1');
-    Vtx::inner('0', vec![v1, v2, v3])
-}
-
-/// Returns a complex tree with multiple levels and branches.
-fn graph_large() -> Rc<Vtx> {
-    let v8 = Vtx::leaf('8');
-    let v7 = Vtx::leaf('7');
-    let v6 = Vtx::leaf('6');
-    let v5 = Vtx::leaf('5');
-    let v4 = Vtx::leaf('4');
-    let v3 = Vtx::leaf('3');
-    let v2 = Vtx::inner('2', vec![v6]);
-    let v1 = Vtx::inner('1', vec![v3]);
-
-    Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
-}
-
-fn graph_complex() -> Rc<Vtx> {
-    let vg = Vtx::leaf('g');
-    let vf = Vtx::leaf('f');
-    let ve = Vtx::leaf('e');
-    let vd = Vtx::leaf('d');
-    let vc = Vtx::inner('c', vec![vf]);
-    let vb = Vtx::leaf('b');
-    let va = Vtx::leaf('a');
-    let v9 = Vtx::inner('9', vec![ve, va]);
-    let v8 = Vtx::inner('8', vec![vd]);
-    let v7 = Vtx::leaf('7');
-    let v6 = Vtx::leaf('6');
-    let v5 = Vtx::leaf('5');
-    let v4 = Vtx::inner('4', vec![v8]);
-    let v3 = Vtx::inner('3', vec![vb]);
-    let v2 = Vtx::inner('2', vec![v7]);
-    let v1 = Vtx::inner('1', vec![vc]);
-    Vtx::inner('0', vec![vg, v1, v6, v2, v5, v3, v9, v4])
-}
-
-/// Returns a wide tree with many children at each level.
-fn graph_wide() -> Rc<Vtx> {
-    let v6 = Vtx::leaf('6');
-    let v5 = Vtx::leaf('5');
-    let v4 = Vtx::leaf('4');
-    let v3 = Vtx::leaf('3');
-    let v2 = Vtx::leaf('2');
-    let v1 = Vtx::leaf('1');
-    Vtx::inner('0', vec![v1, v2, v3, v4, v5, v6])
-}
-
-/// Returns a tree with annotations demonstrating annotation rendering.
-fn graph_annotations() -> Rc<Vtx> {
-    let v8 = Vtx::leaf('8');
-    let v7 = Vtx::leaf('7');
-    let v6 = Vtx::leaf('6');
-    let v5 = Vtx::leaf('5');
-    let v4 = Vtx::leaf_annotated('4', "An annotation\nsplit over\nthree lines");
-    let v3 = Vtx::leaf_annotated('3', "Another annotation");
-    let v2 = Vtx::inner('2', vec![v6]);
-    let v1 = Vtx::inner_annotated('1', vec![v3], "An annotation\nwith two lines");
-
-    Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
-}
-
-/// Returns a tree containing merges.
-fn graph_merge() -> Rc<Vtx> {
-    let va = Vtx::leaf('a');
-    let v9 = Vtx::leaf('9');
-    let v8 = Vtx::leaf('8');
-    let v7 = Vtx::leaf('7');
-    let v6 = Vtx::inner('6', vec![v7, v8, va]);
-    let v5 = Vtx::leaf('5');
-    let v4 = Vtx::inner('4', vec![Rc::clone(&v6), Rc::clone(&v9)]);
-    let v3 = Vtx::inner('3', vec![v6, Rc::clone(&v4), v5]);
-    let v2 = Vtx::inner('2', vec![v3, v9]);
-    let v1 = Vtx::inner('1', vec![v2]);
-    Vtx::inner('0', vec![v4, v1])
-}
-
-/// Returns a tree containing merges and annotations.
-fn graph_merge_annotations() -> Rc<Vtx> {
-    let va = Vtx::leaf('a');
-    let v9 = Vtx::leaf('9');
-    let v8 = Vtx::leaf('8');
-    let v7 = Vtx::leaf('7');
-    let v6 = Vtx::inner('6', vec![v7, v8, va]);
-    let v5 = Vtx::leaf_annotated('5', "An annotation\nsplit over\nthree lines");
-    let v4 = Vtx::inner('4', vec![Rc::clone(&v6), Rc::clone(&v9)]);
-    let v3 = Vtx::inner_annotated('3', vec![v6, Rc::clone(&v4), v5], "An annotation");
-    let v2 = Vtx::inner('2', vec![v3, v9]);
-    let v1 = Vtx::inner('1', vec![v2]);
-    Vtx::inner('0', vec![v4, v1])
 }
 
 /// Renders the tree with the specified style and configuration.
@@ -236,13 +139,13 @@ fn main() -> io::Result<()> {
 
     // Select the graph based on command-line argument
     let tree = match args.graph.to_lowercase().as_str() {
-        "simple" => graph_simple(),
-        "large" => graph_large(),
-        "complex" => graph_complex(),
-        "wide" => graph_wide(),
-        "annotations" => graph_annotations(),
-        "merge-annotations" => graph_merge_annotations(),
-        "merge" => graph_merge(),
+        "simple" => graph::simple(),
+        "large" => graph::large(),
+        "complex" => graph::complex(),
+        "wide" => graph::wide(),
+        "annotations" => graph::annotations(),
+        "merge-annotations" => graph::merge_annotations(),
+        "merge" => graph::merge(),
         _ => {
             eprintln!("Unknown graph: {}", args.graph);
             eprintln!(
@@ -274,4 +177,106 @@ fn main() -> io::Result<()> {
     .merge_over(args.merge_over);
 
     render(tree, config, style, args.invert)
+}
+
+/// Various graphs
+mod graph {
+    use super::Vtx;
+    use std::rc::Rc;
+
+    /// Returns a simple tree with basic branching.
+    pub fn simple() -> Rc<Vtx> {
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::leaf('2');
+        let v1 = Vtx::leaf('1');
+        Vtx::inner('0', vec![v1, v2, v3])
+    }
+
+    /// Returns a complex tree with multiple levels and branches.
+    pub fn large() -> Rc<Vtx> {
+        let v8 = Vtx::leaf('8');
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::inner('2', vec![v6]);
+        let v1 = Vtx::inner('1', vec![v3]);
+
+        Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    }
+
+    pub fn complex() -> Rc<Vtx> {
+        let vg = Vtx::leaf('g');
+        let vf = Vtx::leaf('f');
+        let ve = Vtx::leaf('e');
+        let vd = Vtx::leaf('d');
+        let vc = Vtx::inner('c', vec![vf]);
+        let vb = Vtx::leaf('b');
+        let va = Vtx::leaf('a');
+        let v9 = Vtx::inner('9', vec![ve, va]);
+        let v8 = Vtx::inner('8', vec![vd]);
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::inner('4', vec![v8]);
+        let v3 = Vtx::inner('3', vec![vb]);
+        let v2 = Vtx::inner('2', vec![v7]);
+        let v1 = Vtx::inner('1', vec![vc]);
+        Vtx::inner('0', vec![vg, v1, v6, v2, v5, v3, v9, v4])
+    }
+
+    /// Returns a wide tree with many children at each level.
+    pub fn wide() -> Rc<Vtx> {
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::leaf('3');
+        let v2 = Vtx::leaf('2');
+        let v1 = Vtx::leaf('1');
+        Vtx::inner('0', vec![v1, v2, v3, v4, v5, v6])
+    }
+
+    /// Returns a tree with annotations demonstrating annotation rendering.
+    pub fn annotations() -> Rc<Vtx> {
+        let v8 = Vtx::leaf('8');
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::leaf('5');
+        let v4 = Vtx::leaf_annotated('4', "An annotation\nsplit over\nthree lines");
+        let v3 = Vtx::leaf_annotated('3', "Another annotation");
+        let v2 = Vtx::inner('2', vec![v6]);
+        let v1 = Vtx::inner_annotated('1', vec![v3], "An annotation\nwith two lines");
+
+        Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
+    }
+
+    /// Returns a tree containing merges.
+    pub fn merge() -> Rc<Vtx> {
+        let v9 = Vtx::leaf('9');
+        let v8 = Vtx::leaf('8');
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::leaf('6');
+        let v5 = Vtx::inner('5', vec![v6, v7, v9]);
+        let v4 = Vtx::leaf('4');
+        let v3 = Vtx::inner('3', vec![Rc::clone(&v5), Rc::clone(&v8)]);
+        let v2 = Vtx::inner('2', vec![v5, Rc::clone(&v3), v4]);
+        let v1 = Vtx::inner('1', vec![v2, v8]);
+        Vtx::inner('0', vec![v3, v1])
+    }
+
+    /// Returns a tree containing merges and annotations.
+    pub fn merge_annotations() -> Rc<Vtx> {
+        let va = Vtx::leaf('a');
+        let v9 = Vtx::leaf('9');
+        let v8 = Vtx::leaf('8');
+        let v7 = Vtx::leaf('7');
+        let v6 = Vtx::inner('6', vec![v7, v8, va]);
+        let v5 = Vtx::leaf_annotated('5', "An annotation\nsplit over\nthree lines");
+        let v4 = Vtx::inner('4', vec![Rc::clone(&v6), Rc::clone(&v9)]);
+        let v3 = Vtx::inner_annotated('3', vec![v6, Rc::clone(&v4), v5], "An annotation");
+        let v2 = Vtx::inner('2', vec![v3, v9]);
+        let v1 = Vtx::inner('1', vec![v2]);
+        Vtx::inner('0', vec![v4, v1])
+    }
 }

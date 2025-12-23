@@ -11,7 +11,7 @@ pub trait WriteInner {
     fn write_char(&mut self, ch: char) -> Result<(), Self::Error>;
     fn write_gutter(&mut self) -> Result<(), Self::Error>;
     fn write_annotation(&mut self, line: &str) -> Result<(), Self::Error>;
-    fn finish(&mut self) -> Result<(), Self::Error>;
+    fn write_newline(&mut self) -> Result<(), Self::Error>;
     fn style(&self) -> &Style;
     fn charset(&self) -> &Charset {
         &self.style().charset
@@ -177,19 +177,17 @@ impl<T: WriteInner> Shim<&mut T> {
     }
 
     #[inline]
-    pub fn write_annotation(
-        self,
-        written: usize,
-        required: usize,
-        line: &str,
-    ) -> Result<(), T::Error> {
-        self.0.write_annotation_padding(written, required)?;
-        self.0.write_annotation(line)?;
-        self.write_newline()
+    pub fn prepare_annotation(self, written: usize, required: usize) -> Result<(), T::Error> {
+        self.0.write_annotation_padding(written, required)
+    }
+
+    #[inline]
+    pub fn write_annotation(self, line: &str) -> Result<(), T::Error> {
+        self.0.write_annotation(line)
     }
 
     #[inline]
     pub fn write_newline(self) -> Result<(), T::Error> {
-        self.0.finish()
+        self.0.write_newline()
     }
 }
