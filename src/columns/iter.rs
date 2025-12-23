@@ -416,12 +416,8 @@ impl<'a, V> Iterator for RawColumnIter<'a, V> {
         let current = self.peeked.take()?;
         self.peeked = self.remaining.next();
 
-        // SAFETY: ChunksByMut slices are always be non-empty
-        let c = unsafe { current.get_unchecked(0).1 };
-        let r = self
-            .peeked
-            .as_ref()
-            .map(|p| unsafe { p.get_unchecked(0).1 });
+        let c = current[0].1;
+        let r = self.peeked.as_ref().map(|p| p[0].1);
 
         // increment the position threshold
         let diff = self.pos;

@@ -267,7 +267,7 @@ impl<V, R> Columns<V, R> {
         }
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     pub fn debug_active(&self) -> impl std::fmt::Debug
     where
         R: TryRamify<V>,
@@ -276,17 +276,16 @@ impl<V, R> Columns<V, R> {
     }
 }
 
+type SubstitutionResult<V, R, E> =
+    Result<(Columns<V, R>, Option<(usize, char)>), (SuspendedColumns<V, R>, E)>;
+
 impl<V, R> Columns<V, R> {
     /// Substitute the vertex at the minimal index, replacing it with its children and
     /// recomputing the minimal index. Returns `None` if there are no columns.
     ///
     /// This returns the column at the index as well as the corresponding marker, and writes the
     /// annotation to the provided buffer.
-    #[allow(clippy::type_complexity)]
-    pub fn try_substitute(
-        mut self,
-        buf: &mut String,
-    ) -> Result<(Self, Option<(usize, char)>), (SuspendedColumns<V, R>, R::Error)>
+    pub fn try_substitute(mut self, buf: &mut String) -> SubstitutionResult<V, R, R::Error>
     where
         R: TryRamify<V>,
     {
@@ -422,6 +421,7 @@ impl<V, R> Columns<V, R> {
     }
 
     /// Clear all vertices which are equivalent to the minimal vertex.
+    #[inline]
     fn clear_equivalent(&mut self)
     where
         R: TryRamify<V>,

@@ -3,16 +3,16 @@
 //! Ramify is a library for generating *branch diagrams* to visualize hierarchical data.
 //! ```txt
 //! 0       0        0         0
-//! ├┐      ├╮       ├┬┐       ├┬┐
-//! 1├┐     1╰╮      │1├┐      │1│
-//! │2│     ├╮│      ││2│      2│└─┐
-//! │3│     2│├╮     │3││      │└─┐│
-//! ├┐│     │││3     │┌┘│      ├┬┐││
-//! 4││     ├││╯     ││┌┼┐     │3│││
-//!  5│     4││      │││4│     4┌┘││
-//! ┌┘6     │5│      ││5┌┘      5┌┘│
-//! 7       ├─╯      │6┌┘        6┌┘
-//!         6        7┌┘          7
+//! ├╮      ├╮       ├┬╮       ├┬╮
+//! 1├╮     1╰╮      │1├╮      │1│
+//! │2│     ├╮│      ││2│      2│└─╮
+//! │3│     2│├╮     │3│├╮     │└─╮│
+//! ├╮│     │││3     │╭╯││     ├┬╮││
+//! 4││     ├││╯     ││╭┤│     │3│││
+//!  5│     4││      │││4│     4╭╯││
+//! ╭╯6     │5│      ││5╭╯      5╭╯│
+//! 7       ├─╯      │6╭╯        6╭╯
+//!         6        7╭╯          7
 //!                   8
 //! ```
 //! This library is specifically designed for ordered data: this library generates output similar to
@@ -33,6 +33,7 @@
 //! folder](https://github.com/alexrutar/ramify/tree/master/examples) on GitHub.
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
 
 pub(crate) mod columns;
 mod layout;
@@ -162,7 +163,7 @@ pub trait Ramify<V> {
     /// 2╭╯
     ///  3  The annotation for vertex 2 is empty.
     /// ```
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     fn annotate(&self, vtx: &V, buf: &mut String) {}
 
@@ -195,7 +196,7 @@ pub trait Ramify<V> {
     /// If every child of a vertex is strictly larger than the vertex itself (as ordered by
     /// [`sort_key`](Ramify::sort_key)) and the above compatibility requirement is upheld, it is
     /// guaranteed that identical vertices will not be missed.
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
@@ -240,11 +241,12 @@ pub trait TryRamify<V> {
     fn marker(&self, vtx: &V) -> char;
 
     /// An annotation to write alongside a vertex.
-    #[allow(unused)]
+    #[expect(unused)]
+    #[inline]
     fn annotate(&self, vtx: &V, buf: &mut String) {}
 
     /// Determine if two vertices are identical and should be merged.
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         false
@@ -254,22 +256,27 @@ pub trait TryRamify<V> {
 impl<R: Ramify<V>, V> TryRamify<V> for R {
     type Error = Infallible;
 
+    #[inline]
     fn try_ramify(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, Self::Error> {
         Ok(<Self as Ramify<V>>::ramify(self, vtx))
     }
 
+    #[inline]
     fn sort_key(&self, vtx: &V) -> impl Ord {
         <Self as Ramify<V>>::sort_key(self, vtx)
     }
 
+    #[inline]
     fn marker(&self, vtx: &V) -> char {
         <Self as Ramify<V>>::marker(self, vtx)
     }
 
+    #[inline]
     fn annotate(&self, vtx: &V, buf: &mut String) {
         <Self as Ramify<V>>::annotate(self, vtx, buf)
     }
 
+    #[inline]
     fn is_identical(&self, vtx: &V, other: &V) -> bool {
         <Self as Ramify<V>>::is_identical(self, vtx, other)
     }
