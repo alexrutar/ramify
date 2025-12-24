@@ -90,7 +90,7 @@ fn main() -> std::io::Result<()> {
     // uncomment these lines to try out some of configuration options
     let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
     while !generator.is_empty() {
-        generator = generator.write(&mut writer)?;
+        generator = generator.write_next(&mut writer)?;
     }
     Ok(())
 }

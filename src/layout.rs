@@ -14,7 +14,7 @@ use crate::columns::{Columns, SuspendedColumns};
 ///
 /// Once you have a [`Ramify`] impementation, initialize this struct with the [`new`](Self::new) method or from [layout configuration](Config). After initializing, the branch
 /// diagram can be incrementally written to a [diagram writer](DiagramWrite) using the
-/// [`write`](Self::write) or [`try_write`](Self::try_write) methods.
+/// [`write_next`](Self::write_next) or [`try_write_next`](Self::try_write_next) methods.
 ///
 /// ## Layout and style configuration
 ///
@@ -24,7 +24,7 @@ use crate::columns::{Columns, SuspendedColumns};
 /// [`FmtWriter`](crate::writer::FmtWriter)) use the [`Style`] struct for configuration.
 ///
 /// It is possible to modify configuration while writing the diagram (that is, in between calls to
-/// [`write`](Self::write)) by using [`set_config`](Self::set_config).
+/// [`write_next`](Self::write_next)) by using [`set_config`](Self::set_config).
 ///
 /// ## Interaction with the [`Ramify`] trait.
 ///
@@ -32,7 +32,7 @@ use crate::columns::{Columns, SuspendedColumns};
 ///
 /// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
 /// when rendering a row and its annotation (a single call to
-/// [`write`](Generator::write)).
+/// [`write_next`](Generator::write_next)).
 ///
 /// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
 /// - [`Ramify::annotate`] is called exactly once called to determine the annotation for the
@@ -79,7 +79,7 @@ use crate::columns::{Columns, SuspendedColumns};
 /// assuming the various methods in [`Ramify`] take constant time.
 ///
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
-/// buffer is re-used between calls to [`write`](Self::write).
+/// buffer is re-used between calls to [`write_next`](Self::write_next).
 #[derive(Debug)]
 pub struct Generator<V, R> {
     columns: Columns<V, R>,
@@ -122,11 +122,11 @@ impl<V, R> Generator<V, R> {
     /// 2. Rows for the row padding (if not last).
     /// 3. Any extra rows to prepare for the next vertex (if not last). This includes merge lines,
     ///    if merges are required.
-    pub fn write<W: DiagramWrite>(self, writer: &mut W) -> Result<Self, W::Error>
+    pub fn write_next<W: DiagramWrite>(self, writer: &mut W) -> Result<Self, W::Error>
     where
         R: Ramify<V>,
     {
-        let State::Ok(generator) = self.try_write(writer)?;
+        let State::Ok(generator) = self.try_write_next(writer)?;
         Ok(generator)
     }
 
@@ -139,7 +139,7 @@ impl<V, R> Generator<V, R> {
     /// continued by supplying a (possibly empty) list of children.
     ///
     /// If the generator is [empty](Self::is_empty), this does nothing.
-    pub fn try_write<W: DiagramWrite>(
+    pub fn try_write_next<W: DiagramWrite>(
         mut self,
         writer: &mut W,
     ) -> Result<State<V, R, R::Error>, W::Error>
@@ -177,21 +177,21 @@ impl<V, R> Generator<V, R> {
 
     /// Write the entire branch diagram into the provided diagram writer.
     ///
-    /// This repeatedly calls [`write`](Generator::write) as long as the there are
+    /// This repeatedly calls [`write_next`](Generator::write_next) as long as the there are
     /// remaining vertices.
     pub fn write_all<W: DiagramWrite>(mut self, writer: &mut W) -> Result<(), W::Error>
     where
         R: Ramify<V>,
     {
         while !self.is_empty() {
-            self = self.write(writer)?;
+            self = self.write_next(writer)?;
         }
         Ok(())
     }
 
     /// Try to write the entire branch diagram into the provided diagram writer.
     ///
-    /// This repeatedly calls [`try_write`](Generator::write) as long as the writes succeed. If a
+    /// This repeatedly calls [`try_write_next`](Generator::try_write_next) as long as the writes succeed. If a
     /// write fails, the suspended generator is returned along with the error which occurred.
     #[expect(clippy::type_complexity)]
     pub fn try_write_all<W: DiagramWrite>(
@@ -202,7 +202,7 @@ impl<V, R> Generator<V, R> {
         R: TryRamify<V>,
     {
         while !self.is_empty() {
-            self = match self.try_write(writer)? {
+            self = match self.try_write_next(writer)? {
                 State::Ok(generator) => generator,
                 State::Suspended(suspended, err) => return Ok(Some((suspended, err))),
             };
@@ -287,7 +287,7 @@ impl<V, R> Generator<V, R> {
     }
 }
 
-/// Generator states which may occur after a call to [`try_write`](Generator::try_write).
+/// Generator states which may occur after a call to [`try_write_next`](Generator::try_write_next).
 ///
 /// If you want to abort on an error, use [`halt_if_suspended`](Self::halt_if_suspended). If you
 /// want to continue despite the error, use [`SuspendedGenerator::resume`].
@@ -309,10 +309,14 @@ impl<V, R, E> State<V, R, E> {
 
     /// Either write the next vertex or resume from the suspended state with a closure.
     ///
-    /// If this is a [`State::Ok`], this calls [`Generator::try_write`], and if this is a
+    /// If this is a [`State::Ok`], this calls [`Generator::try_write_next`], and if this is a
     /// [`State::Suspended`], the provided closure is applied to the error to provide a new list of
     /// children.
-    pub fn try_write<I, F, W>(self, writer: &mut W, f: F) -> Result<State<V, R, R::Error>, W::Error>
+    pub fn try_write_next<I, F, W>(
+        self,
+        writer: &mut W,
+        f: F,
+    ) -> Result<State<V, R, R::Error>, W::Error>
     where
         R: TryRamify<V>,
         I: IntoIterator<Item = V>,
@@ -320,7 +324,7 @@ impl<V, R, E> State<V, R, E> {
         W: DiagramWrite,
     {
         match self {
-            Self::Ok(generator) => generator.try_write(writer),
+            Self::Ok(generator) => generator.try_write_next(writer),
             Self::Suspended(suspended, err) => {
                 let generator = suspended.resume(writer, f(err))?;
                 Ok(State::Ok(generator))
@@ -341,7 +345,7 @@ impl<V, R, E> State<V, R, E> {
         W: DiagramWrite,
     {
         while !self.is_empty() {
-            self = self.try_write(writer, &mut f)?;
+            self = self.try_write_next(writer, &mut f)?;
         }
         Ok(())
     }

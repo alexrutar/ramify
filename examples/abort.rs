@@ -86,7 +86,7 @@ fn main() -> io::Result<()> {
 
     let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
     while !diag.is_empty() {
-        diag = match diag.try_write(&mut writer)? {
+        diag = match diag.try_write_next(&mut writer)? {
             State::Ok(generator) => generator,
             State::Suspended(suspended, ch) => {
                 // write the last vertex before the error

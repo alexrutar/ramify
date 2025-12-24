@@ -135,7 +135,7 @@ fn render(tree: Rc<Vtx>, config: Config, style: Style, invert: bool) -> io::Resu
         let mut writer = style.io_writer(io::stdout().lock());
         // for normal styles, write line-by-line
         while !generator.is_empty() {
-            generator = generator.write(&mut writer)?
+            generator = generator.write_next(&mut writer)?
         }
     }
 

@@ -80,7 +80,7 @@ fn main() -> io::Result<()> {
     // repeatedly write to stdout until the tree is empty
     let mut writer = ramify::writer::Style::rounded_corners().io_writer(io::stdout().lock());
     while !diag.is_empty() {
-        diag = diag.write(&mut writer)?;
+        diag = diag.write_next(&mut writer)?;
     }
 
     Ok(())
