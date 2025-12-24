@@ -14,15 +14,17 @@ use crate::columns::{Columns, SuspendedColumns};
 ///
 /// Once you have a [`Ramify`] impementation, initialize this struct with the [`new`](Self::new) method or from [layout configuration](Config). After initializing, the branch
 /// diagram can be incrementally written to a [diagram writer](DiagramWrite) using the
-/// [`write_vertex`](Self::write_vertex) method.
+/// [`write`](Self::write) or [`try_write`](Self::try_write) methods.
 ///
 /// ## Layout and style configuration
 ///
 /// This struct can be configured by passing an appropriate [`Config`] struct. This is *layout*
-/// configuration.
+/// configuration. The appearance of the resulting diagram is defined by the diagram writer. The
+/// build in diagram writers ([`IOWriter`](crate::writer::IOWriter) and
+/// [`FmtWriter`](crate::writer::FmtWriter)) use the [`Style`] struct for configuration.
 ///
 /// It is possible to modify configuration while writing the diagram (that is, in between calls to
-/// [`write_vertex`](Self::write_vertex)) by using [`set_config`](Self::set_config).
+/// [`write`](Self::write)) by using [`set_config`](Self::set_config).
 ///
 /// ## Interaction with the [`Ramify`] trait.
 ///
@@ -30,7 +32,7 @@ use crate::columns::{Columns, SuspendedColumns};
 ///
 /// When a [`Ramify`] implementation is used by a [`Generator`], the following calls are made
 /// when rendering a row and its annotation (a single call to
-/// [`write_vertex`](Generator::write_vertex)).
+/// [`write`](Generator::write)).
 ///
 /// - [`Ramify::marker`] is called exactly once to determine the diagram marker for the minimal vertex.
 /// - [`Ramify::annotate`] is called exactly once called to determine the annotation for the
@@ -77,7 +79,7 @@ use crate::columns::{Columns, SuspendedColumns};
 /// assuming the various methods in [`Ramify`] take constant time.
 ///
 /// If an annotation is written, the entire annotation is loaded into a scratch buffer. The scratch
-/// buffer is re-used between calls to [`write_vertex`](Self::write_vertex).
+/// buffer is re-used between calls to [`write`](Self::write).
 #[derive(Debug)]
 pub struct Generator<V, R> {
     columns: Columns<V, R>,
@@ -103,34 +105,146 @@ impl<V, R> Generator<V, R> {
         }
     }
 
-    /// Get a new branch diagram generator starting at a given vertex of type `V` using the default
-    /// configuration.
-    pub fn with_default_config(root: V, ramifier: R) -> Self {
-        Self::with_config(root, ramifier, Config::new())
+    /// Write a row containing a vertex along with its annotation to the provided
+    /// [diagram writer](DiagramWrite).
+    ///
+    /// This method takes ownership since a write error leaves the generator in an unspecified
+    /// state from which resuming generation is not possible.
+    ///
+    /// If the generator is [empty](Self::is_empty), this does nothing.
+    ///
+    /// # Output rows
+    ///
+    /// A single call to this method writes the following:
+    ///
+    /// 1. The annotation lines (if any), with the vertex on the first or last line depending on
+    ///    the [configuration](Config).
+    /// 2. Rows for the row padding (if not last).
+    /// 3. Any extra rows to prepare for the next vertex (if not last). This includes merge lines,
+    ///    if merges are required.
+    pub fn write<W: DiagramWrite>(self, writer: &mut W) -> Result<Self, W::Error>
+    where
+        R: Ramify<V>,
+    {
+        let State::Ok(generator) = self.try_write(writer)?;
+        Ok(generator)
     }
 
-    /// Returns the current configuration.
+    /// Try to write the next vertex, failing to do so if the call to [`TryRamify::try_ramify`]
+    /// results in an error.
+    ///
+    /// The error is handled *eagerly*: no writes are performed when an error is encountered. An
+    /// error
+    /// puts the generator into a [suspended state](SuspendedGenerator), and iteration can be
+    /// continued by supplying a (possibly empty) list of children.
+    ///
+    /// If the generator is [empty](Self::is_empty), this does nothing.
+    pub fn try_write<W: DiagramWrite>(
+        mut self,
+        writer: &mut W,
+    ) -> Result<State<V, R, R::Error>, W::Error>
+    where
+        R: TryRamify<V>,
+    {
+        match self.columns.try_substitute(&mut self.annotation_buf) {
+            Ok((g, None)) => {
+                self.columns = g;
+                Ok(State::Ok(self))
+            }
+            Ok((mut g, Some((col, marker_char)))) => {
+                try_write_impl(
+                    &mut g,
+                    col,
+                    marker_char,
+                    &self.annotation_buf,
+                    writer,
+                    self.first,
+                )?;
+                self.first = false;
+                self.columns = g;
+                Ok(State::Ok(self))
+            }
+            Err((f, err)) => {
+                let failed = SuspendedGenerator {
+                    columns: f,
+                    annotation_buf: self.annotation_buf,
+                    first: self.first,
+                };
+                Ok(State::Suspended(failed, err))
+            }
+        }
+    }
+
+    /// Write the entire branch diagram into the provided diagram writer.
+    ///
+    /// This repeatedly calls [`write`](Generator::write) as long as the there are
+    /// remaining vertices.
+    pub fn write_all<W: DiagramWrite>(mut self, writer: &mut W) -> Result<(), W::Error>
+    where
+        R: Ramify<V>,
+    {
+        while !self.is_empty() {
+            self = self.write(writer)?;
+        }
+        Ok(())
+    }
+
+    /// Try to write the entire branch diagram into the provided diagram writer.
+    ///
+    /// This repeatedly calls [`try_write`](Generator::write) as long as the writes succeed. If a
+    /// write fails, the suspended generator is returned along with the error which occurred.
+    #[expect(clippy::type_complexity)]
+    pub fn try_write_all<W: DiagramWrite>(
+        mut self,
+        writer: &mut W,
+    ) -> Result<Option<(SuspendedGenerator<V, R>, R::Error)>, W::Error>
+    where
+        R: TryRamify<V>,
+    {
+        while !self.is_empty() {
+            self = match self.try_write(writer)? {
+                State::Ok(generator) => generator,
+                State::Suspended(suspended, err) => return Ok(Some((suspended, err))),
+            };
+        }
+        Ok(None)
+    }
+
+    /// Generate the entire branch diagram as a newly allocated string.
+    ///
+    /// This is identical to calling [`write_all`](Self::write_all) with a
+    /// [`FmtWriter`](crate::writer::FmtWriter) wrapping a string.
+    pub fn branch_diagram(self, style: Style) -> String
+    where
+        R: Ramify<V>,
+    {
+        let mut buf = String::new();
+        self.write_all(&mut style.fmt_writer(&mut buf))
+            .expect("Failed to write into string!");
+        buf
+    }
+
+    /// Get a copy of the current configuration.
     pub fn config(&self) -> Config {
         self.columns.config()
     }
 
-    /// Reset the configuration.
+    /// Set the configuration to a new value.
     pub fn set_config(&mut self, config: Config) {
         *self.columns.config_mut() = config;
     }
 
-    /// The index of the final `open` edge, or `None` if there are no edges.
+    /// The index of the largest occupied column, or `None` if the diagram is empty.
     ///
-    /// For example, the below diagram has maximum edge index `4`.
+    /// For example, the below diagrams have maximum edge index `4` and `1` respectively.
     /// ```txt
-    /// 0
-    /// ├┬╮
-    /// │1│
-    /// ├╮╰─╮
+    /// 0        0
+    /// ├┬╮      ├┬╮
+    /// │1│      │1│
+    /// ├╮╰─╮    │╭╯
+    ///     ^     ^
+    ///     4     1
     /// ```
-    /// This is not the same as the width of the diagram row which was previously written. However,
-    /// we can use this information to compute the width of the diagram row by taking the maximum of the edge index and the
-    /// edge index prior to writing a row, multiplying by the gutter width, and then adding `1`.
     pub fn max_edge_index(&self) -> Option<usize> {
         self.columns.max_edge_index()
     }
@@ -164,7 +278,7 @@ impl<V, R> Generator<V, R> {
         self.columns.shrink_to_fit();
     }
 
-    /// Returns the annotation written in the previous vertex, if any.
+    /// The annotation of the most recent vertex, if any.
     ///
     /// This returns the empty string if there was no previous vertex or if the previous vertex
     /// did not have an annotation.
@@ -173,110 +287,10 @@ impl<V, R> Generator<V, R> {
     }
 }
 
-impl<V, R> Generator<V, R> {
-    /// Write a row containing a vertex along with its annotation to the provided
-    /// [diagram writer](DiagramWrite).
-    ///
-    /// This method takes ownership since a write error leaves the generator in an unspecified
-    /// state from which resuming generation is not possible.
-    ///
-    /// # Output rows
-    ///
-    /// A single call to this method writes the following:
-    ///
-    /// 1. The annotation lines (if any), with the vertex on the first or last line depending on
-    ///    the [configuration](Config).
-    /// 2. Rows for the row padding (if not last).
-    /// 3. Any extra rows to prepare for the next vertex (if not last). This includes merge lines,
-    ///    if merges are required.
-    pub fn write_vertex<W: DiagramWrite>(self, writer: &mut W) -> Result<Self, W::Error>
-    where
-        R: Ramify<V>,
-    {
-        let State::Ok(generator) = self.try_write_vertex(writer)?;
-        Ok(generator)
-    }
-
-    /// Write the entire branch diagram into the provided writer.
-    ///
-    /// This repeatedly calls [`write_vertex`](Generator::write_vertex) as long as the there are
-    /// remaining vertices. The (empty) generator is returned at the end.
-    pub fn write_all_vertices<W: DiagramWrite>(mut self, writer: &mut W) -> Result<Self, W::Error>
-    where
-        R: Ramify<V>,
-    {
-        while !self.is_empty() {
-            self = self.write_vertex(writer)?;
-        }
-        Ok(self)
-    }
-
-    /// Generate the entire branch diagram as a newly allocated string.
-    ///
-    /// This is identical to repeatedly calling [`write_vertex`](Self::write_vertex) as long as the
-    /// generator is [is not empty](Generator::is_empty) with a
-    /// [`FmtWriter`](crate::writer::FmtWriter) wrapping a string buffer.
-    pub fn branch_diagram(mut self, style: Style) -> String
-    where
-        R: Ramify<V>,
-    {
-        let mut buf = String::new();
-        let mut writer = style.fmt_writer(&mut buf);
-        while !self.is_empty() {
-            self = self
-                .write_vertex(&mut writer)
-                .expect("Failed to write into string");
-        }
-
-        buf
-    }
-}
-
-impl<V, R: TryRamify<V>> Generator<V, R> {
-    /// Try to write the next vertex, failing to do so if the call to [`TryRamify::try_ramify`]
-    /// results in an error.
-    ///
-    /// The error is handled *eagerly*: no writes are performed when an error is encountered. This
-    /// puts the generator into a [suspended state](SuspendedGenerator), and iteration can be
-    /// continued by supplying a (possibly empty) list of children.
-    ///
-    /// If the generator is [empty](Self::is_empty), this does nothing.
-    pub fn try_write_vertex<W: DiagramWrite>(
-        mut self,
-        writer: &mut W,
-    ) -> Result<State<V, R, R::Error>, W::Error> {
-        match self.columns.try_substitute(&mut self.annotation_buf) {
-            Ok((g, None)) => {
-                self.columns = g;
-                Ok(State::Ok(self))
-            }
-            Ok((mut g, Some((col, marker_char)))) => {
-                try_write_vertex_impl(
-                    &mut g,
-                    col,
-                    marker_char,
-                    &self.annotation_buf,
-                    writer,
-                    self.first,
-                )?;
-                self.first = false;
-                self.columns = g;
-                Ok(State::Ok(self))
-            }
-            Err((f, err)) => {
-                let failed = SuspendedGenerator {
-                    columns: f,
-                    annotation_buf: self.annotation_buf,
-                    first: self.first,
-                };
-                Ok(State::Suspended(failed, err))
-            }
-        }
-    }
-}
-
-/// The possible generator states which may occur after a call to
-/// [`try_write_vertex`](Generator::try_write_vertex).
+/// The generator states which may occur after a call to [`try_write`](Generator::try_write).
+///
+/// If you want to abort on an error, use [`halt_if_suspended`](Self::halt_if_suspended). If you
+/// want to continue despite the error, use [`SuspendedGenerator::resume`].
 pub enum State<V, R, E> {
     /// The vertex was written successfully.
     Ok(Generator<V, R>),
@@ -293,17 +307,12 @@ impl<V, R, E> State<V, R, E> {
         }
     }
 
-    /// A convenience function to either write the next vertex or resume from the suspended state
-    /// with a closure.
+    /// Either write the next vertex or resume from the suspended state with a closure.
     ///
-    /// If this is a [`State::Ok`], this calls [`Generator::try_write_vertex`], and if this is a
+    /// If this is a [`State::Ok`], this calls [`Generator::try_write`], and if this is a
     /// [`State::Suspended`], the provided closure is applied to the error to provide a new list of
     /// children.
-    pub fn try_write_vertex<I, F, W>(
-        self,
-        writer: &mut W,
-        f: F,
-    ) -> Result<State<V, R, R::Error>, W::Error>
+    pub fn try_write<I, F, W>(self, writer: &mut W, f: F) -> Result<State<V, R, R::Error>, W::Error>
     where
         R: TryRamify<V>,
         I: IntoIterator<Item = V>,
@@ -311,12 +320,30 @@ impl<V, R, E> State<V, R, E> {
         W: DiagramWrite,
     {
         match self {
-            Self::Ok(generator) => generator.try_write_vertex(writer),
+            Self::Ok(generator) => generator.try_write(writer),
             Self::Suspended(suspended, err) => {
                 let generator = suspended.resume(writer, f(err))?;
                 Ok(State::Ok(generator))
             }
         }
+    }
+
+    /// A convenience function to repeatedly try to write the next vertex or resume from the suspended state with a closure.
+    ///
+    /// Note that instead of using this method, it may be possible to directly implement
+    /// [`Ramify`] by inlining the closure into [`try_ramify`](TryRamify::try_ramify) and instead
+    /// using [`Generator::write_all`].
+    pub fn try_write_all<I, F, W>(mut self, writer: &mut W, mut f: F) -> Result<(), W::Error>
+    where
+        R: TryRamify<V, Error = E>,
+        I: IntoIterator<Item = V>,
+        F: FnMut(E) -> I,
+        W: DiagramWrite,
+    {
+        while !self.is_empty() {
+            self = self.try_write(writer, &mut f)?;
+        }
+        Ok(())
     }
 
     /// Whether or not there are any active vertices.
@@ -343,7 +370,7 @@ impl<V, R, E> State<V, R, E> {
 
 /// A suspended generator.
 ///
-/// A suspended generator is like a normal generator, except with the minimal vertex moved out of
+/// A suspended generator is like a normal generator with the minimal vertex moved out of
 /// the generator. This state results when a [`TryRamify`] implementation returns an error.
 ///
 /// Iteration can be [resumed](Self::resume), which requires specifying an iterator over children
@@ -357,13 +384,9 @@ pub struct SuspendedGenerator<V, R> {
 impl<V, R> SuspendedGenerator<V, R> {
     /// Recover from an error and resume iteration.
     ///
-    /// This writes the current minimal vertex and replaces it with its children. The end result is
-    /// equivalent to the [`TryRamify`] implementation succeeding and yielding this iterator over
-    /// children.
-    ///
-    /// In order to resume iteration, the caller must provide children for the failed vertex. The
-    /// children are used to write a single vertex row, and then the resulting generator is
-    /// returned.
+    /// This writes the current minimal vertex and updates the internal state to hold the children.
+    /// The end result is equivalent to the [`TryRamify`] implementation succeeding and yielding
+    /// the provided iterator over children.
     pub fn resume<I, W: DiagramWrite>(
         self,
         writer: &mut W,
@@ -375,7 +398,7 @@ impl<V, R> SuspendedGenerator<V, R> {
     {
         let (mut g, col, marker_char) = self.columns.resume(children);
 
-        try_write_vertex_impl(
+        try_write_impl(
             &mut g,
             col,
             marker_char,
@@ -397,8 +420,8 @@ impl<V, R> SuspendedGenerator<V, R> {
         self.columns.into_active_vertices()
     }
 
-    /// Returns the annotation that will be written with the next vertex if iteration is resumed.
-    pub fn next_annotation(&self) -> &str {
+    /// Returns the annotation of the current vertex that will be written if iteration is resumed.
+    pub fn peek_annotation(&self) -> &str {
         &self.annotation_buf
     }
 }
@@ -407,7 +430,7 @@ impl<V, R> SuspendedGenerator<V, R> {
 ///
 /// This does the following:
 ///
-/// 1. Make all of the vertices isolated.
+/// 1. Makes all of the vertices isolated.
 /// 2. Once isolated, merges the vertices if needed.
 fn write_preparation_row<W: DiagramWrite, V, R: TryRamify<V>>(
     cols: &mut Columns<V, R>,
@@ -445,9 +468,7 @@ fn write_vertex_row<W: DiagramWrite, V, R: TryRamify<V>>(
     cols.write_shimmed_row(writer, ops::Fork, (col, ops::Marker(marker_char)))
 }
 
-/// Internal implementation
-// impl<V, R: TryRamify<V>> Generator<V, R> {
-fn try_write_vertex_impl<V, R: TryRamify<V>, W: DiagramWrite>(
+fn try_write_impl<V, R: TryRamify<V>, W: DiagramWrite>(
     columns: &mut Columns<V, R>,
     col: usize,
     marker_char: char,
@@ -460,24 +481,15 @@ fn try_write_vertex_impl<V, R: TryRamify<V>, W: DiagramWrite>(
         columns.config().reverse_annotation_lines,
     ) {
         (false, false) => {
-            try_write_vertex_normal_impl(columns, col, marker_char, annotation.lines(), writer)
+            try_write_normal_impl(columns, col, marker_char, annotation.lines(), writer)
         }
-        (false, true) => try_write_vertex_normal_impl(
-            columns,
-            col,
-            marker_char,
-            annotation.lines().rev(),
-            writer,
-        ),
-        (true, false) => try_write_vertex_delayed_impl(
-            columns,
-            col,
-            marker_char,
-            annotation.lines(),
-            writer,
-            first,
-        ),
-        (true, true) => try_write_vertex_delayed_impl(
+        (false, true) => {
+            try_write_normal_impl(columns, col, marker_char, annotation.lines().rev(), writer)
+        }
+        (true, false) => {
+            try_write_delayed_impl(columns, col, marker_char, annotation.lines(), writer, first)
+        }
+        (true, true) => try_write_delayed_impl(
             columns,
             col,
             marker_char,
@@ -488,7 +500,7 @@ fn try_write_vertex_impl<V, R: TryRamify<V>, W: DiagramWrite>(
     }
 }
 
-fn try_write_vertex_normal_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
+fn try_write_normal_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
     columns: &mut Columns<V, R>,
     col: usize,
     marker_char: char,
@@ -532,7 +544,7 @@ fn try_write_vertex_normal_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
 }
 
 /// Write the vertex at the end of the annotation instead of at the beginning.
-fn try_write_vertex_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
+fn try_write_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
     columns: &mut Columns<V, R>,
     mut col: usize,
     marker_char: char,
@@ -541,10 +553,6 @@ fn try_write_vertex_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
     first: bool,
 ) -> Result<(), W::Error> {
     let maybe_last_line = lines.next_back();
-
-    // we cannot use `enumerate` because we don't have an exact size iterator, so we manually
-    // implement it since we only write the last line at the end anyway.
-    let mut idx = 0;
 
     let mut state = match maybe_last_line {
         None => {
@@ -562,15 +570,19 @@ fn try_write_vertex_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
                         ops::Fork,
                         (col, ops::DelayedMarker(marker_char)),
                     )?;
-                    writer.write_annotation_line(idx, state.width, state.alignment, last_line)?;
+                    writer.write_annotation_line(0, state.width, state.alignment, last_line)?;
 
                     state
                 }
                 Some(first_line) => {
                     let mut state =
                         write_preparation_row_delayed(columns, writer, first, &mut col)?;
-                    writer.write_annotation_line(idx, state.width, state.alignment, first_line)?;
-                    idx += 1;
+                    writer.write_annotation_line(0, state.width, state.alignment, first_line)?;
+
+                    // we cannot use `enumerate` because we don't have an exact size iterator, so we manually
+                    // implement it since we only write the last line at the end at which point we know its index
+                    // anyway.
+                    let mut idx = 1;
 
                     for line in lines {
                         let new = write_preparation_row_delayed(columns, writer, first, &mut col)?;

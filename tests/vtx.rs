@@ -77,7 +77,7 @@ pub fn assert_diag(
     let mut writer = style.io_writer(&mut buf);
     let mut cols = Generator::with_config(&root, Ramifier(annotation_prefix), config);
     while !cols.is_empty() {
-        cols = cols.write_vertex(&mut writer).unwrap()
+        cols = cols.write(&mut writer).unwrap()
     }
 
     let received = std::str::from_utf8(&buf).unwrap();
@@ -141,7 +141,7 @@ pub fn assert_diag_fallible<const N: usize>(
 
     let mut n = 0;
     while !cols.is_empty() {
-        cols = match cols.try_write_vertex(&mut writer).unwrap() {
+        cols = match cols.try_write(&mut writer).unwrap() {
             State::Ok(generator) => generator,
             State::Suspended(suspended, ()) => {
                 n += 1;

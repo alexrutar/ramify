@@ -29,10 +29,87 @@
 //!
 //! ## Usage examples
 //!
-//! Usage examples can be found in the [examples
+//! Below, there is a minimal example. More usage examples can be found in the [examples
 //! folder](https://github.com/alexrutar/ramify/tree/master/examples) on GitHub.
+//! ```
+//! use std::io;
+//! use ramify::{Generator, Ramify, writer::Style};
+//!
+//! /// A basic recursive tree implementation.
+//! struct Vtx {
+//!     data: char,
+//!     children: Vec<Vtx>,
+//! }
+//!
+//! impl Vtx {
+//!     /// A vertex with children.
+//!     fn inner(data: char, children: Vec<Vtx>) -> Self {
+//!         Self {
+//!             data,
+//!             children,
+//!         }
+//!     }
+//!
+//!     /// A vertex with no children.
+//!     fn leaf(data: char) -> Self {
+//!         Self {
+//!             data,
+//!             children: Vec::new(),
+//!         }
+//!     }
+//! }
+//!
+//! struct Ramifier;
+//!
+//! impl<'t> Ramify<&'t Vtx> for Ramifier {
+//!     fn ramify(&mut self, vtx: &'t Vtx) -> impl IntoIterator<Item = &'t Vtx> {
+//!         vtx.children.iter()
+//!     }
+//!
+//!     fn sort_key(&self, vtx: &&'t Vtx) -> impl Ord {
+//!         // sort using the marker character itself
+//!         vtx.data
+//!     }
+//!
+//!     fn marker(&self, vtx: &&'t Vtx) -> char {
+//!         vtx.data
+//!     }
+//! }
+//!
+//! let tree = {
+//!     let v8 = Vtx::leaf('8');
+//!     let v7 = Vtx::leaf('7');
+//!     let v6 = Vtx::leaf('6');
+//!     let v5 = Vtx::leaf('5');
+//!     let v4 = Vtx::leaf('4');
+//!     let v3 = Vtx::leaf('3');
+//!     let v2 = Vtx::inner('2', vec![v6]);
+//!     let v1 = Vtx::inner('1', vec![v3]);
+//!     Vtx::inner('0', vec![v7, v1, v2, v5, v4, v8])
+//! };
+//!
+//! let diag = Generator::new(&tree, Ramifier).branch_diagram(Style::rounded_corners());
+//!
+//! assert_eq!(
+//!     diag,
+//!     "\
+//! 0
+//! ├┬╮
+//! │1├╮
+//! ││2│
+//! │3│├╮
+//! │╭╯││
+//! ││╭┤│
+//! │││4│
+//! ││5╭╯
+//! │6╭╯
+//! 7╭╯
+//!  8
+//! "
+//! );
+//! ```
 
-#![deny(missing_docs)]
+#![forbid(missing_docs)]
 #![forbid(unsafe_code)]
 
 pub(crate) mod columns;

@@ -120,7 +120,7 @@ fn main() -> std::io::Result<()> {
 
     let mut writer = Style::rounded_corners().io_writer(io::stdout().lock());
     while !generator.is_empty() {
-        generator = generator.write_vertex(&mut writer)?;
+        generator = generator.write(&mut writer)?;
     }
     Ok(())
 }

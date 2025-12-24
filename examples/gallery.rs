@@ -86,6 +86,14 @@ struct Args {
     #[argh(switch, short = 'i')]
     invert: bool,
 
+    /// draw the annotation lines before the vertex
+    #[argh(switch)]
+    annotation_before_vertex: bool,
+
+    /// reverse the order of annotation lines
+    #[argh(switch)]
+    reverse_annotation_lines: bool,
+
     /// extra rows between vertices
     #[argh(option, default = "0")]
     row_padding: usize,
@@ -127,7 +135,7 @@ fn render(tree: Rc<Vtx>, config: Config, style: Style, invert: bool) -> io::Resu
         let mut writer = style.io_writer(io::stdout().lock());
         // for normal styles, write line-by-line
         while !generator.is_empty() {
-            generator = generator.write_vertex(&mut writer)?
+            generator = generator.write(&mut writer)?
         }
     }
 
@@ -135,7 +143,13 @@ fn render(tree: Rc<Vtx>, config: Config, style: Style, invert: bool) -> io::Resu
 }
 
 fn main() -> io::Result<()> {
-    let args: Args = argh::from_env();
+    let mut args: Args = argh::from_env();
+
+    // normalize args
+    if args.invert {
+        args.annotation_before_vertex = true;
+        args.reverse_annotation_lines = true;
+    };
 
     // Select the graph based on command-line argument
     let tree = match args.graph.to_lowercase().as_str() {
@@ -159,7 +173,8 @@ fn main() -> io::Result<()> {
     let config = Config::new()
         .row_padding(args.row_padding)
         .minimize_width(args.minimize_width)
-        .inverted_annotations(args.invert);
+        .annotation_before_vertex(args.annotation_before_vertex)
+        .reverse_annotation_lines(args.reverse_annotation_lines);
 
     let style = match args.style.to_lowercase().as_str() {
         "rounded_corners" | "roundedcorners" => Style::rounded_corners(),
