@@ -41,4 +41,7 @@ name = "subset"
 name = "tree_error"
 
 [[example]]
+name = "numbered"
+
+[[example]]
 name = "gallery"

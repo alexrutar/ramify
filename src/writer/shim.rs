@@ -8,6 +8,7 @@ use super::{Branch, Charset, MergeBranch, Style};
 pub trait WriteInner {
     type Error;
 
+    fn write_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Result<(), Self::Error>;
     fn write_char(&mut self, ch: char) -> Result<(), Self::Error>;
     fn write_gutter(&mut self) -> Result<(), Self::Error>;
     fn write_annotation(&mut self, line: &str) -> Result<(), Self::Error>;
@@ -93,6 +94,11 @@ pub trait WriteInner {
 pub struct Shim<T>(pub T);
 
 impl<T: WriteInner> Shim<&mut T> {
+    #[inline]
+    pub fn write_fmt(self, args: std::fmt::Arguments<'_>) -> Result<(), T::Error> {
+        self.0.write_fmt(args)
+    }
+
     #[inline]
     pub fn write_branch(self, start: usize, skip: usize, branch: Branch) -> Result<(), T::Error> {
         self.0
