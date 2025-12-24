@@ -36,12 +36,12 @@ pub enum Branch {
     /// A `╭┬─┴` left shift fork merge starter.
     ///
     /// The first field is the number of `─` horizontal spacers and the second field is the number
-    /// of forks.
+    /// of `┬` forks.
     ShiftForkLeftMergeStart(usize, usize),
     /// A `╰─┬┬` right shift fork merge starter.
     ///
-    /// The first field is the number of `─` horizontal spacers and the second field is the number of
-    /// forks.
+    /// The first field is the number of `─` horizontal spacers and the second field is the number
+    /// of `┬` forks.
     ShiftForkRightMergeStart(usize, usize),
 }
 
@@ -56,7 +56,7 @@ pub enum MergeBranch {
     /// A `│` or `─` crossing.
     ///
     /// This is a horizontal line crossing a vertical line, used when a merge line must pass over
-    /// another line.
+    /// (or under) another line.
     Cross,
     /// A `╯` merge end.
     End,
