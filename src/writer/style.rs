@@ -202,8 +202,6 @@ impl Style {
     /// - `L1` still starts 1 character to the right of the justification since the diagram is too wide.
     /// - `L2` is shifted right by two characters, so that it begins 5 characters from the
     ///   boundary.
-    ///
-    /// right by one character, whereas the other annotations are not moved.
     /// ```txt
     /// 0             0
     /// ├┬╮           ├┬╮
