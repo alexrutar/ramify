@@ -120,7 +120,7 @@ pub mod writer;
 
 use std::convert::Infallible;
 
-pub use self::layout::{Config, Generator, State, SuspendedGenerator};
+pub use self::layout::{Config, Generator, State, SuspendedGenerator, WriteAllState};
 
 /// A trait representing hierarchical data structures with efficient iteration of children.
 ///

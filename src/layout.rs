@@ -193,21 +193,22 @@ impl<V, R> Generator<V, R> {
     ///
     /// This repeatedly calls [`try_write_next`](Generator::try_write_next) as long as the writes succeed. If a
     /// write fails, the suspended generator is returned along with the error which occurred.
-    #[expect(clippy::type_complexity)]
     pub fn try_write_all<W: DiagramWrite>(
         mut self,
         writer: &mut W,
-    ) -> Result<Option<(SuspendedGenerator<V, R>, R::Error)>, W::Error>
+    ) -> Result<WriteAllState<V, R, R::Error>, W::Error>
     where
         R: TryRamify<V>,
     {
         while !self.is_empty() {
             self = match self.try_write_next(writer)? {
                 State::Ok(generator) => generator,
-                State::Suspended(suspended, err) => return Ok(Some((suspended, err))),
+                State::Suspended(suspended, err) => {
+                    return Ok(WriteAllState::Suspended(suspended, err));
+                }
             };
         }
-        Ok(None)
+        Ok(WriteAllState::Ok)
     }
 
     /// Generate the entire branch diagram as a newly allocated string.
@@ -222,6 +223,23 @@ impl<V, R> Generator<V, R> {
         self.write_all(&mut style.fmt_writer(&mut buf))
             .expect("Failed to write into string!");
         buf
+    }
+
+    /// Try to generate the entire branch diagram as a newly allocated string, aborting on an
+    /// error.
+    ///
+    /// This is identical to calling [`try_write_all`](Self::write_all) with a
+    /// [`FmtWriter`](crate::writer::FmtWriter) wrapping a string and dropping the suspended
+    /// generator on error.
+    pub fn try_branch_diagram(self, style: Style) -> Result<String, R::Error>
+    where
+        R: TryRamify<V>,
+    {
+        let mut buf = String::new();
+        self.try_write_all(&mut style.fmt_writer(&mut buf))
+            .expect("Failed to write into string!")
+            .halt_if_suspended()?;
+        Ok(buf)
     }
 
     /// Get a copy of the current configuration.
@@ -287,10 +305,30 @@ impl<V, R> Generator<V, R> {
     }
 }
 
+/// The result of trying to write all of the vertices in a generator.
+#[must_use]
+pub enum WriteAllState<V, R, E> {
+    /// The diagram was fully written.
+    Ok,
+    /// An error occurred while writing a vertex.
+    Suspended(SuspendedGenerator<V, R>, E),
+}
+
+impl<V, R, E> WriteAllState<V, R, E> {
+    /// Drop the suspended generator and return the error if not ok.
+    pub fn halt_if_suspended(self) -> Result<(), E> {
+        match self {
+            Self::Ok => Ok(()),
+            Self::Suspended(_, err) => Err(err),
+        }
+    }
+}
+
 /// Generator states which may occur after a call to [`try_write_next`](Generator::try_write_next).
 ///
 /// If you want to abort on an error, use [`halt_if_suspended`](Self::halt_if_suspended). If you
 /// want to continue despite the error, use [`SuspendedGenerator::resume`].
+#[must_use]
 pub enum State<V, R, E> {
     /// The vertex was written successfully.
     Ok(Generator<V, R>),
