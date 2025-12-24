@@ -278,7 +278,7 @@ impl<V, R> Generator<V, R> {
         self.columns.shrink_to_fit();
     }
 
-    /// The annotation of the most recent vertex, if any.
+    /// The annotation of the previous vertex, if any.
     ///
     /// This returns the empty string if there was no previous vertex or if the previous vertex
     /// did not have an annotation.
@@ -287,7 +287,7 @@ impl<V, R> Generator<V, R> {
     }
 }
 
-/// The generator states which may occur after a call to [`try_write`](Generator::try_write).
+/// Generator states which may occur after a call to [`try_write`](Generator::try_write).
 ///
 /// If you want to abort on an error, use [`halt_if_suspended`](Self::halt_if_suspended). If you
 /// want to continue despite the error, use [`SuspendedGenerator::resume`].
@@ -348,7 +348,7 @@ impl<V, R, E> State<V, R, E> {
 
     /// Whether or not there are any active vertices.
     ///
-    /// If this is a [`State::Ok`], this checks if the internal iterator is non-empty, and if this
+    /// If this is a [`State::Ok`], this checks if the generator is non-empty, and if this
     /// is [`State::Suspended`] it always returns false since there is at least one active
     /// vertex.
     pub fn is_empty(&self) -> bool {
@@ -384,9 +384,9 @@ pub struct SuspendedGenerator<V, R> {
 impl<V, R> SuspendedGenerator<V, R> {
     /// Recover from an error and resume iteration.
     ///
-    /// This writes the current minimal vertex and updates the internal state to hold the children.
+    /// This writes the current minimal vertex and updates the internal state to hold the provided children.
     /// The end result is equivalent to the [`TryRamify`] implementation succeeding and yielding
-    /// the provided iterator over children.
+    /// the provided children.
     pub fn resume<I, W: DiagramWrite>(
         self,
         writer: &mut W,
@@ -420,7 +420,7 @@ impl<V, R> SuspendedGenerator<V, R> {
         self.columns.into_active_vertices()
     }
 
-    /// Returns the annotation of the current vertex that will be written if iteration is resumed.
+    /// Returns the annotation that will be written if iteration is resumed.
     pub fn peek_annotation(&self) -> &str {
         &self.annotation_buf
     }
@@ -466,6 +466,20 @@ fn write_vertex_row<W: DiagramWrite, V, R: TryRamify<V>>(
     marker_char: char,
 ) -> Result<RowState, W::Error> {
     cols.write_shimmed_row(writer, ops::Fork, (col, ops::Marker(marker_char)))
+}
+
+#[inline]
+fn write_annotation_line<W: DiagramWrite>(
+    writer: &mut W,
+    idx: usize,
+    state: &RowState,
+    // width: usize,
+    // alignment: usize,
+    line: &str,
+) -> Result<(), W::Error> {
+    writer.prepare_annotation(idx, state.width, state.alignment)?;
+    writer.write_annotation(idx, line)?;
+    writer.write_newline()
 }
 
 fn try_write_impl<V, R: TryRamify<V>, W: DiagramWrite>(
@@ -515,12 +529,12 @@ fn try_write_normal_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
     // finish the vertex row and then write the annotation lines
     match lines.next() {
         Some((idx, first_line)) => {
-            writer.write_annotation_line(idx, state.width, state.alignment, first_line)?;
+            write_annotation_line(writer, idx, &state, first_line)?;
 
             // write the remaining annotation lines
             for (idx, line) in lines {
                 write_preparation_row(columns, writer, &mut state)?;
-                writer.write_annotation_line(idx, state.width, state.alignment, line)?;
+                write_annotation_line(writer, idx, &state, line)?;
             }
         }
         None => writer.write_newline()?,
@@ -570,14 +584,14 @@ fn try_write_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
                         ops::Fork,
                         (col, ops::DelayedMarker(marker_char)),
                     )?;
-                    writer.write_annotation_line(0, state.width, state.alignment, last_line)?;
+                    write_annotation_line(writer, 0, &state, last_line)?;
 
                     state
                 }
                 Some(first_line) => {
                     let mut state =
                         write_preparation_row_delayed(columns, writer, first, &mut col)?;
-                    writer.write_annotation_line(0, state.width, state.alignment, first_line)?;
+                    write_annotation_line(writer, 0, &state, first_line)?;
 
                     // we cannot use `enumerate` because we don't have an exact size iterator, so we manually
                     // implement it since we only write the last line at the end at which point we know its index
@@ -587,7 +601,7 @@ fn try_write_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
                     for line in lines {
                         let new = write_preparation_row_delayed(columns, writer, first, &mut col)?;
                         state.update(&new);
-                        writer.write_annotation_line(idx, state.width, state.alignment, line)?;
+                        write_annotation_line(writer, idx, &state, line)?;
                         idx += 1;
                     }
 
@@ -600,7 +614,7 @@ fn try_write_delayed_impl<'a, V, R: TryRamify<V>, W: DiagramWrite>(
                     // temporarily store the width, etc. in the previous state, and use it
                     // to write the annotation
                     state.update(&new_state);
-                    writer.write_annotation_line(idx, state.width, state.alignment, last_line)?;
+                    write_annotation_line(writer, idx, &state, last_line)?;
 
                     new_state
                 }

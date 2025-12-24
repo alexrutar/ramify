@@ -15,6 +15,7 @@ pub struct Config {
 }
 
 impl Default for Config {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -24,6 +25,7 @@ impl Config {
     /// Initialize using default values.
     ///
     /// This is a const function which is identical to the [`Default`] implementation.
+    #[inline]
     pub const fn new() -> Self {
         Self {
             row_padding: 0,
@@ -37,6 +39,7 @@ impl Config {
     /// given ramifier.
     ///
     /// This is a convenience wrapper around [`Generator::with_config`].
+    #[inline]
     pub fn generator<V, R>(self, root: V, ramifier: R) -> Generator<V, R> {
         Generator::with_config(root, ramifier, self)
     }
@@ -70,6 +73,7 @@ impl Config {
     ///            ╭╯
     ///            8
     /// ```
+    #[inline]
     pub const fn row_padding(mut self, pad: usize) -> Self {
         self.row_padding = pad;
         self
@@ -102,6 +106,7 @@ impl Config {
     ///            ╭╯
     ///            8
     /// ```
+    #[inline]
     pub const fn minimize_width(mut self, minimize: bool) -> Self {
         self.minimize_width = minimize;
         self
@@ -136,6 +141,7 @@ impl Config {
     /// 7╭╯           7╭╯
     ///  8             8
     /// ```
+    #[inline]
     pub const fn annotation_before_vertex(mut self, before: bool) -> Self {
         self.annotation_before_vertex = before;
         self
@@ -166,6 +172,7 @@ impl Config {
     /// 7╭╯          7╭╯     
     ///  8            8      
     /// ```
+    #[inline]
     pub const fn reverse_annotation_lines(mut self, rev: bool) -> Self {
         self.reverse_annotation_lines = rev;
         self
@@ -201,6 +208,7 @@ impl Config {
     /// 7╭╯           7╭╯           ├┴╯
     ///  8             8            0
     /// ```
+    #[inline]
     pub const fn inverted_annotations(self, invert: bool) -> Self {
         self.annotation_before_vertex(invert)
             .reverse_annotation_lines(invert)

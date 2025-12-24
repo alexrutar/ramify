@@ -15,6 +15,8 @@
 //!         6        7╭╯          7
 //!                   8
 //! ```
+//! To use this library, you simply describe the graph structure and associated metadata, and the branch diagram is generated automatically in an optimal way.
+//!
 //! This library is specifically designed for ordered data: this library generates output similar to
 //! `git log --graph --all`, rather than the output of `tree`. A prototypical application is to visualize the
 //! undo-tree of a text file. The order is the timestamp of the edit, and the tree structure
@@ -212,9 +214,9 @@ pub trait Ramify<V> {
     /// The buffer is cleared before it is passed to this method.
     ///
     /// This will be called exactly once per vertex.
-    /// The lines in the buffer are written sequentially, with the first line written on the
-    /// same line as the vertex with which it is associated. The default implementation
-    /// does not write an annotation.
+    /// The lines in the buffer are written sequentially with each line on a separate row. The
+    /// order in which the lines are rendered and the placement relative to the vertex
+    /// marker is controled by the [generator configuration](Config).
     ///
     /// # Implementation details
     ///
@@ -225,7 +227,8 @@ pub trait Ramify<V> {
     /// Like the standard library implementation of [`str::lines`](str#method.lines), the final
     /// trailing newline is optional and ignored if present. If you want extra space between
     /// consecutive annotations, it is best to use the [`row_padding`](Config::row_padding)
-    /// option of the [`Config`] struct.
+    /// option of the [`Config`] struct since this will allow the layout algorithm to generate a
+    /// more compact diagram.
     ///
     /// # Example
     ///
@@ -288,7 +291,7 @@ pub trait Ramify<V> {
 ///
 /// This trait is used by a [generator](Generator) to manage control flow around errors. When driven by a
 /// generator, if an error occurs, no writes are performed and the generator
-/// is put into a [suspended state](SuspendedGenerator).
+/// is put into a [suspended state](SuspendedGenerator) and yields control back to the caller.
 ///
 /// If you wish to represent the errors directly inside the tree, you should implement [`Ramify`]
 /// with a vertex type like `Result<V, E>`.
@@ -308,7 +311,8 @@ pub trait TryRamify<V> {
     ///
     /// If an error occurs while this ramifier is driven by a generator, the error is returned in the [`State::Suspended`] variant along with the suspended generator. In order to
     /// [resume](SuspendedGenerator::resume) iteration after an error, the error type
-    /// should contain enough context to recover.
+    /// should contain enough context to recover, for instance by moving the vertex into the
+    /// error.
     fn try_ramify(&mut self, vtx: V) -> Result<impl IntoIterator<Item = V>, Self::Error>;
 
     /// Get the sort key associated with a vertex.
