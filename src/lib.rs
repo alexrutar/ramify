@@ -15,7 +15,7 @@
 //!         6        7╭╯          7
 //!                   8
 //! ```
-//! To use this library, you simply describe the graph structure and associated metadata, and the branch diagram is generated automatically in an optimal way.
+//! To use this library, simply describe the graph structure and associated metadata, and the branch diagram is generated automatically.
 //!
 //! This library is specifically designed for ordered data: this library generates output similar to
 //! `git log --graph --all`, rather than the output of `tree`. A prototypical application is to visualize the

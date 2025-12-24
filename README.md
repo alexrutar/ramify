@@ -17,7 +17,7 @@ Ramify is a Rust library for generating *branch diagrams* to visualize hierarchi
 ```
 See the [gallery](https://github.com/alexrutar/ramify#gallery) for more images.
 
-To use this library, you simply describe your graph structure and associated metadata, and the branch diagram is generated automatically in an optimal way.
+To use this library, simply describe the graph structure and associated metadata, and the branch diagram is generated automatically.
 
 This library is specifically designed for ordered data: this library generates output similar to `git log --graph --all`, rather than the output of `tree`.
 A prototypical application is to visualize the undo-tree of a text file.
