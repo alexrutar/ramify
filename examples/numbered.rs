@@ -3,7 +3,7 @@
 use std::io;
 
 use ramify::{
-    Config, Ramify,
+    Generator, Ramify,
     writer::{Branch, DiagramWrite, MergeBranch, Style},
 };
 
@@ -110,7 +110,7 @@ impl<W: DiagramWrite> DiagramWrite for DiagWriter<W> {
         // increment the annotation
         self.annotation_count += 1;
         // write the line number followed by the line
-        self.inner.write_fmt(format_args!("{}. {line}", idx + 1))
+        write!(self.inner, "{}. {line}", idx + 1)
     }
 
     fn write_newline(&mut self) -> Result<(), Self::Error> {
@@ -138,9 +138,8 @@ fn main() -> io::Result<()> {
 
     let mut writer = DiagWriter::new(Style::rounded_corners().io_writer(io::stdout().lock()));
 
-    Config::new()
-        .generator(&tree, AnnotatingRamifier)
-        .write_all(&mut writer)?; // repeatedly write to stdout until the tree is empty
+    // repeatedly write to stdout until the tree is empty
+    Generator::new(&tree, AnnotatingRamifier).write_all(&mut writer)?;
 
     // we can write into any diagram writer because of the `write_fmt` glue method
     let ct = writer.annotation_count;

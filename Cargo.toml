@@ -45,3 +45,6 @@ name = "subset"
 
 [[example]]
 name = "tree_error"
+
+[[example]]
+name = "log_writes"

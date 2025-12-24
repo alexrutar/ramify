@@ -195,10 +195,14 @@ pub trait Ramify<V> {
     ///
     /// # Char width
     ///
-    /// This should be a char with width exactly 1 when displayed to the terminal. Other characters,
+    /// The built-in diagram writers ([`IOWriter`](crate::writer::IOWriter) and
+    /// [`FmtWriter`](crate::writer::FmtWriter)) expect that this is char with width exactly 1 when displayed to the terminal. Other characters,
     /// such as control characters or double-width characters (mainly those described in
     /// [Unicode Annex #11](https://www.unicode.org/reports/tr11/tr11-11.html)) will corrupt the
-    /// tree drawing.
+    /// branch diagram.
+    ///
+    /// If you wish to use double-width characters, you should implement
+    /// [`DiagramWrite`](crate::writer::DiagramWrite) yourself.
     ///
     /// Here are some characters which might be useful:
     ///
@@ -223,6 +227,8 @@ pub trait Ramify<V> {
     /// Implementations of this method should write the annotation directly into the buffer,
     /// including newlines for annotations spanning multiple lines. The annotations are
     /// automatically line-broken and aligned with the branch diagram when rendered.
+    ///
+    /// The buffer is always cleared before it is passed to this method.
     ///
     /// Like the standard library implementation of [`str::lines`](str#method.lines), the final
     /// trailing newline is optional and ignored if present. If you want extra space between

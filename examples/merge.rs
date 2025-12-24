@@ -28,7 +28,7 @@ impl Vtx {
     }
 }
 
-/// A ramifier which drains vertices from the graph and writes annotations.
+/// A ramifier which drains vertices from the graph.
 struct AnnotatingRamifier;
 
 impl Ramify<Rc<Vtx>> for AnnotatingRamifier {

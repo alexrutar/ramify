@@ -284,6 +284,19 @@ impl Style {
 }
 
 /// A set of characters to use in the diagram.
+///
+/// In most cases, you would use some combination of [box-drawing
+/// characters](https://en.wikipedia.org/wiki/Box-drawing_characters).
+///
+/// The [`rounded_corners`](Self::rounded_corners) character set often looks the best if there is
+/// font support, whereas the [`sharp_corners`](Self::sharp_corners) tends to have more universal
+/// font support.
+///
+/// When used in the [`Style`] struct, an [`IOWriter`] or a [`FmtWriter`] expects that these are
+/// characters with width exactly 1 when displayed to the terminal. Other characters,
+/// such as control characters or double-width characters (mainly those described in
+/// [Unicode Annex #11](https://www.unicode.org/reports/tr11/tr11-11.html)) will corrupt the
+/// branch diagram.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Charset {
     /// The ` ` character.
@@ -304,7 +317,7 @@ pub struct Charset {
     pub down_and_horizontal: char,
     /// The `┴` character.
     pub up_and_horizontal: char,
-    /// The `┤` character.╮
+    /// The `┤` character.
     pub vertical_and_left: char,
     /// The `├` character.
     pub vertical_and_right: char,

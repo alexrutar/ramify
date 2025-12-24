@@ -13,4 +13,5 @@ The examples are as follows.
 | [`cascade.rs`](https://github.com/alexrutar/ramify/blob/master/examples/cascade.rs) | A streaming example with randomly generated children. |
 | [`cascade_merge.rs`](https://github.com/alexrutar/ramify/blob/master/examples/cascade_merge.rs) | A streaming example with randomly generated children and merges. |
 | [`subset.rs`](https://github.com/alexrutar/ramify/blob/master/examples/subset.rs) | Render a random subset of a given tree. |
-| [`numbered.rs`](https://github.com/alexrutar/ramify/blob/master/examples/subset.rs) | A custom diagram writer implementation. |
+| [`numbered.rs`](https://github.com/alexrutar/ramify/blob/master/examples/numbered.rs) | A custom diagram writer implementation. |
+| [`log_writes.rs`](https://github.com/alexrutar/ramify/blob/master/examples/log_writes.rs) | A diagram writer which also logs and prints the raw write calls. |

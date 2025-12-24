@@ -13,14 +13,17 @@
 //! configuration which results in a different sequence of calls to the [`DiagramWrite`]
 //! methods belongs in [`Config`](crate::Config).
 //!
-//! ### Composing diagram writers
+//! ## Composing diagram writers
 //!
 //! If you want to customize the diagram writer, in many simple cases it is also possible to wrap an
 //! internal diagram writer. The [`DiagramWrite::write_fmt`] helps to compose writers, and also
 //! can make it simpler to write code which is generic over an arbitrary diagram writer.
 //!
+//! ### Numbered annotation lines
 //! In the following example, we wrap a diagram writer to print line numbers before each annotation
 //! line.
+//!
+//! Try this out with `cargo run --example numbered`.
 //! ```
 //! use ramify::writer::{Branch, DiagramWrite, IOWriter, MergeBranch};
 //!
@@ -64,7 +67,7 @@
 //!
 //!     fn write_annotation(&mut self, idx: usize, line: &str) -> Result<(), Self::Error> {
 //!         // write the line number followed by the line
-//!         self.inner.write_fmt(format_args!("{}. {line}", idx + 1))
+//!         write!(self.inner, "{}. {line}", idx + 1)
 //!     }
 //!
 //!     fn write_newline(&mut self) -> Result<(), Self::Error> {
@@ -72,12 +75,89 @@
 //!     }
 //! }
 //! ```
+//!
+//! ### Logging diagram write calls
+//! In the following example, we also log the write calls before passing them to the writer.
+//!
+//! Try this out with `cargo run --example log_writes`.
+//! ```
+//! use ramify::writer::{Branch, DiagramWrite, MergeBranch};
+//!
+//! struct LoggingWriter<W> {
+//!     calls: Vec<Instruction>,
+//!     writer: W,
+//! }
+//!
+//! enum Instruction {
+//!     WriteBranch(usize, usize, Branch),
+//!     WriteMergeBranch(usize, usize, MergeBranch),
+//!     PrepareAnnotation(usize, usize, usize),
+//!     WriteAnnotation(usize, String),
+//!     WriteNewline,
+//! }
+//!
+//! impl<W: DiagramWrite> DiagramWrite for LoggingWriter<W> {
+//!     type Error = W::Error;
+//!
+//!     fn write_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Result<(), Self::Error> {
+//!         // don't log a fmt call since this is not emitted by a Generator anyway
+//!         self.writer.write_fmt(args)
+//!     }
+//!
+//!     fn write_branch(
+//!         &mut self,
+//!         start: usize,
+//!         skip: usize,
+//!         branch: Branch,
+//!     ) -> Result<(), Self::Error> {
+//!         self.calls
+//!             .push(Instruction::WriteBranch(start, skip, branch));
+//!         self.writer.write_branch(start, skip, branch)
+//!     }
+//!
+//!     fn write_merge_branch(
+//!         &mut self,
+//!         start: usize,
+//!         skip: usize,
+//!         merge: MergeBranch,
+//!     ) -> Result<(), Self::Error> {
+//!         self.calls
+//!             .push(Instruction::WriteMergeBranch(start, skip, merge));
+//!         self.writer.write_merge_branch(start, skip, merge)
+//!     }
+//!
+//!     fn prepare_annotation(
+//!         &mut self,
+//!         idx: usize,
+//!         written: usize,
+//!         required: usize,
+//!     ) -> Result<(), Self::Error> {
+//!         self.calls
+//!             .push(Instruction::PrepareAnnotation(idx, written, required));
+//!         self.writer.prepare_annotation(idx, written, required)
+//!     }
+//!
+//!     fn write_annotation(&mut self, idx: usize, line: &str) -> Result<(), Self::Error> {
+//!         self.calls
+//!             .push(Instruction::WriteAnnotation(idx, line.to_owned()));
+//!         self.writer.write_annotation(idx, line)
+//!     }
+//!
+//!     fn write_newline(&mut self) -> Result<(), Self::Error> {
+//!         self.calls.push(Instruction::WriteNewline);
+//!         self.writer.write_newline()
+//!     }
+//! }
+//! ```
+
 mod branch;
 mod shim;
 mod style;
 
-pub use self::branch::{Branch, MergeBranch};
-pub use self::style::{Charset, Style};
+pub use self::{
+    branch::{Branch, MergeBranch},
+    style::{Charset, Style},
+};
 use shim::{Shim, WriteInner};
 
 use std::{fmt, io};
@@ -90,6 +170,8 @@ use std::{fmt, io};
 ///
 /// This trait is designed to minimize the amount of state that an implementation needs to hold.
 /// Many of the methods are passed various column counts to provide the context in which the write occurs.
+///
+/// See the [module-level documentation](crate::writer) for more detail and examples.
 pub trait DiagramWrite {
     /// An error which may occur while writing.
     type Error;
@@ -191,16 +273,64 @@ pub trait DiagramWrite {
     fn write_newline(&mut self) -> Result<(), Self::Error>;
 }
 
+impl<W: DiagramWrite + ?Sized> DiagramWrite for &mut W {
+    type Error = W::Error;
+
+    #[inline]
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Self::Error> {
+        (**self).write_fmt(args)
+    }
+
+    #[inline]
+    fn write_branch(
+        &mut self,
+        start: usize,
+        skip: usize,
+        branch: Branch,
+    ) -> Result<(), Self::Error> {
+        (**self).write_branch(start, skip, branch)
+    }
+
+    #[inline]
+    fn write_merge_branch(
+        &mut self,
+        start: usize,
+        skip: usize,
+        merge: MergeBranch,
+    ) -> Result<(), Self::Error> {
+        (**self).write_merge_branch(start, skip, merge)
+    }
+
+    #[inline]
+    fn prepare_annotation(
+        &mut self,
+        idx: usize,
+        written: usize,
+        required: usize,
+    ) -> Result<(), Self::Error> {
+        (**self).prepare_annotation(idx, written, required)
+    }
+
+    #[inline]
+    fn write_annotation(&mut self, idx: usize, line: &str) -> Result<(), Self::Error> {
+        (**self).write_annotation(idx, line)
+    }
+
+    #[inline]
+    fn write_newline(&mut self) -> Result<(), Self::Error> {
+        (**self).write_newline()
+    }
+}
+
 /// A diagram writer which writes into an [`io::Write`] implementation.
 ///
-/// Note that this writer is *not buffered*, and a diagram writer emits a very large number of
+/// Note that this writer provides *no additional buffering*, and a diagram writer emits a very large number of
 /// small writes to the internal writer. It is strongly recommended to provide a buffered writer,
 /// for example with a [`BufWriter`](io::BufWriter) or a [`LineWriter`](io::LineWriter). Some
 /// built-in writers, such as [standard output](io::stdout), are automatically line buffered.
 ///
-/// The [`DiagramWrite`] implementation will never flush output. You can flush the internal writer
-/// with [`flush`](Self::flush). Since a newline is always written after every diagram row, it is
-/// not necessary to flush if you are using a line-buffered writer.
+/// The [`DiagramWrite`] implementation will never flush output. Since a newline is always written
+/// after every diagram row, it is not necessary to flush if you are using a line-buffered writer.
 pub struct IOWriter<W> {
     /// The style.
     style: Style,
@@ -221,17 +351,10 @@ impl<W> IOWriter<W> {
         Self { style, writer }
     }
 
-    /// Flush the inner writer.
-    ///
-    /// This is identical to `self.writer().flush()`.
-    pub fn flush(&mut self) -> io::Result<()>
-    where
-        W: io::Write,
-    {
-        self.writer.flush()
-    }
-
     /// Get a mutable reference to the internal writer.
+    ///
+    /// Note that this struct automatically implements [`io::Write`] by passing writes to
+    /// the internal writer.
     #[inline]
     pub const fn writer(&mut self) -> &mut W {
         &mut self.writer
@@ -295,6 +418,33 @@ impl<W: io::Write> WriteInner for IOWriter<W> {
     #[inline]
     fn write_newline(&mut self) -> io::Result<()> {
         self.writer.write_all(b"\n")
+    }
+}
+
+impl<W: io::Write> io::Write for IOWriter<W> {
+    #[inline]
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.writer.write(buf)
+    }
+
+    #[inline]
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+
+    #[inline]
+    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        self.writer.write_vectored(bufs)
+    }
+
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+        self.writer.write_all(buf)
+    }
+
+    #[inline]
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> io::Result<()> {
+        self.writer.write_fmt(args)
     }
 }
 
@@ -371,6 +521,9 @@ impl<W> FmtWriter<W> {
     }
 
     /// Get a mutable reference to the internal writer.
+    ///
+    /// Note that this struct automatically implements [`fmt::Write`] by passing writes to
+    /// the internal writer.
     #[inline]
     pub const fn writer(&mut self) -> &mut W {
         &mut self.writer
@@ -475,5 +628,22 @@ impl<W: fmt::Write> DiagramWrite for FmtWriter<W> {
     #[inline]
     fn write_newline(&mut self) -> Result<(), Self::Error> {
         Shim(self).write_newline()
+    }
+}
+
+impl<W: fmt::Write> fmt::Write for FmtWriter<W> {
+    #[inline]
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.writer.write_str(s)
+    }
+
+    #[inline]
+    fn write_char(&mut self, c: char) -> fmt::Result {
+        self.writer.write_char(c)
+    }
+
+    #[inline]
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
+        self.writer.write_fmt(args)
     }
 }
