@@ -473,8 +473,6 @@ fn write_annotation_line<W: DiagramWrite>(
     writer: &mut W,
     idx: usize,
     state: &RowState,
-    // width: usize,
-    // alignment: usize,
     line: &str,
 ) -> Result<(), W::Error> {
     writer.prepare_annotation(idx, state.width, state.alignment)?;
