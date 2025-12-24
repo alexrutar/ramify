@@ -17,6 +17,9 @@ rand = "0.9.2"
 rand_distr = "0.5.1"
 
 [[example]]
+name = "abort"
+
+[[example]]
 name = "basic"
 
 [[example]]
@@ -26,22 +29,19 @@ name = "cascade"
 name = "cascade_merge"
 
 [[example]]
-name = "merge"
+name = "gallery"
 
 [[example]]
 name = "inverted"
 
 [[example]]
-name = "abort"
+name = "merge"
+
+[[example]]
+name = "numbered"
 
 [[example]]
 name = "subset"
 
 [[example]]
 name = "tree_error"
-
-[[example]]
-name = "numbered"
-
-[[example]]
-name = "gallery"
