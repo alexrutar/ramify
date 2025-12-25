@@ -105,6 +105,7 @@ impl<'a> MinIndices<'a> {
     }
 
     /// Return the position of this minimal index relative to the other minimal indices.
+    #[inline]
     pub fn pos(&self) -> Position {
         if self.lt_first {
             Position::BeforeFirst
@@ -411,6 +412,8 @@ impl<'a, V> RawColumnIter<'a, V> {
 impl<'a, V> Iterator for RawColumnIter<'a, V> {
     type Item = (usize, &'a mut [(V, usize)], Option<usize>, MinIndices<'a>);
 
+    // NOTE: this is a very hot function: almost 50% of the entire diagram render time
+    // is spent here
     fn next(&mut self) -> Option<Self::Item> {
         // swap the peeked element with the new peeked element
         let current = self.peeked.take()?;

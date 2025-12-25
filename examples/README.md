@@ -15,3 +15,4 @@ The examples are as follows.
 | [`subset.rs`](https://github.com/alexrutar/ramify/blob/master/examples/subset.rs) | Render a random subset of a given tree. |
 | [`numbered.rs`](https://github.com/alexrutar/ramify/blob/master/examples/numbered.rs) | A custom diagram writer implementation. |
 | [`log_writes.rs`](https://github.com/alexrutar/ramify/blob/master/examples/log_writes.rs) | A diagram writer which also logs and prints the raw write calls. |
+| [`rate.rs`](https://github.com/alexrutar/ramify/blob/master/examples/rate.rs) | A stress test to test the raw write rate of a writer. |
