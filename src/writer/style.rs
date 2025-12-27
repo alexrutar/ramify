@@ -14,11 +14,11 @@ pub struct Style {
     /// A set of characters to use in the diagram.
     pub(crate) charset: Charset,
     /// The margin at the beginning of each annotation.
-    pub(crate) annotation_margin: usize,
+    pub(crate) annotation_margin: u16,
     /// The minimum left alignment of each annotation line.
-    pub(crate) annotation_justification: usize,
+    pub(crate) annotation_justification: u16,
     /// The gap between vertices.
-    pub(crate) gutter_width: usize,
+    pub(crate) gutter_width: u16,
     /// Put merge lines on top.
     pub(crate) merge_over: bool,
 }
@@ -179,8 +179,8 @@ impl Style {
     ///  8             8
     /// ```
     #[inline]
-    pub const fn annotation_margin(mut self, annotation_margin: usize) -> Self {
-        self.annotation_margin = annotation_margin;
+    pub const fn annotation_margin(mut self, margin: u16) -> Self {
+        self.annotation_margin = margin;
         self
     }
 
@@ -218,8 +218,8 @@ impl Style {
     ///               ---->
     /// ```
     #[inline]
-    pub const fn annotation_justification(mut self, annotation_justification: usize) -> Self {
-        self.annotation_justification = annotation_justification;
+    pub const fn annotation_justification(mut self, justification: u16) -> Self {
+        self.annotation_justification = justification;
         self
     }
 
@@ -245,8 +245,8 @@ impl Style {
     ///            ^ ^ ^ ^ gutters
     /// ```
     #[inline]
-    pub const fn gutter_width(mut self, gutter_width: usize) -> Self {
-        self.gutter_width = gutter_width;
+    pub const fn gutter_width(mut self, width: u16) -> Self {
+        self.gutter_width = width;
         self
     }
 

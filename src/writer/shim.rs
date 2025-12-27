@@ -22,8 +22,8 @@ pub trait WriteInner {
     fn write_blanks(&mut self, non_empty: bool, cols: usize, ch: char) -> Result<(), Self::Error> {
         // this is equivalent to:
         //   let extra_ws = if self.start { 0 } else { B::GUTTER_WIDTH };
-        let extra_ws = self.style().gutter_width * (non_empty as usize);
-        let ws = extra_ws + (1 + self.style().gutter_width) * cols;
+        let extra_ws = usize::from(self.style().gutter_width) * (non_empty as usize);
+        let ws = extra_ws + usize::from(1 + self.style().gutter_width) * cols;
 
         for _ in 0..ws {
             self.write_char(ch)?;
@@ -56,9 +56,9 @@ pub trait WriteInner {
         required: usize,
     ) -> Result<(), Self::Error> {
         #[inline]
-        const fn cols_to_chars(gw: usize, cols: usize) -> usize {
+        const fn cols_to_chars(gw: u16, cols: usize) -> usize {
             let mask = (cols != 0) as usize;
-            ((gw + 1) * cols).wrapping_sub(gw) * mask
+            ((gw as usize + 1) * cols).wrapping_sub(gw as usize) * mask
         }
 
         // | - - | - - | - - | - - | - - | - - | - - |
@@ -71,15 +71,12 @@ pub trait WriteInner {
         //                          |- n_chars                  -|
         let written_chars = cols_to_chars(self.style().gutter_width, written);
         let required_chars = cols_to_chars(self.style().gutter_width, required);
-        let pad = self
-            .style()
-            .annotation_justification
-            .saturating_sub(written_chars);
+        let pad = usize::from(self.style().annotation_justification).saturating_sub(written_chars);
 
         let extra_chars = required_chars - written_chars;
 
         // the number of blanks we need to write
-        let n_blanks = pad.max(extra_chars + self.style().annotation_margin);
+        let n_blanks = pad.max(extra_chars + usize::from(self.style().annotation_margin));
 
         for _ in 0..n_blanks {
             self.write_char(self.charset().space)?;

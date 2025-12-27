@@ -96,19 +96,19 @@ struct Args {
 
     /// extra rows between vertices
     #[argh(option, default = "0")]
-    row_padding: usize,
+    row_padding: u16,
 
     /// margin between annotation and branch diagram
     #[argh(option, default = "1")]
-    annotation_margin: usize,
+    annotation_margin: u16,
 
     /// the gap between columns
     #[argh(option, default = "0")]
-    gutter_width: usize,
+    gutter_width: u16,
 
     /// minimum left justification of annotations
     #[argh(option, default = "0")]
-    annotation_justification: usize,
+    annotation_justification: u16,
 
     /// avoid all internal whitespace
     #[argh(switch)]

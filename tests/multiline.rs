@@ -2,7 +2,7 @@ mod vtx;
 
 use vtx::*;
 
-fn assert_diag_annot(root: Rc<Vtx>, margin_below: usize, expected: &str) {
+fn assert_diag_annot(root: Rc<Vtx>, margin_below: u16, expected: &str) {
     let config = Config::new().row_padding(margin_below);
     let style = Style::rounded_corners();
     assert_diag(root, ">0\n>1\n>2", config, style, expected);

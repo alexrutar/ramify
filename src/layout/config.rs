@@ -8,7 +8,7 @@ use crate::Generator;
 /// For style configuration with a built-in diagram writer, see the [`Style`](crate::writer::Style) struct.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
-    pub(crate) row_padding: usize,
+    pub(crate) row_padding: u16,
     pub(crate) minimize_width: bool,
     pub(crate) annotation_before_vertex: bool,
     pub(crate) reverse_annotation_lines: bool,
@@ -74,7 +74,7 @@ impl Config {
     ///            8
     /// ```
     #[inline]
-    pub const fn row_padding(mut self, pad: usize) -> Self {
+    pub const fn row_padding(mut self, pad: u16) -> Self {
         self.row_padding = pad;
         self
     }
