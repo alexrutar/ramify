@@ -79,10 +79,6 @@ impl RowState {
         self.width = other.width;
     }
 
-    //     pub fn alignment(&self) -> (usize, usize, usize) {
-    //         (self.margin, self.alignment, self.width)
-    //     }
-
     pub fn is_isolated(&self) -> bool {
         self.isolated
     }
